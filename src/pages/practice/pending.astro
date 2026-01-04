@@ -1,0 +1,208 @@
+---
+/**
+ * Pending Interpretations - Practice Queue
+ * 
+ * Shows all interpretations awaiting user response.
+ * This is THE TRAINING DATA COLLECTION INTERFACE.
+ */
+import Layout from '../../layouts/Layout.astro';
+import { sacredJourney } from '../../lib/sacred-journey';
+
+let pending: any[] = [];
+let error = null;
+
+try {
+  const data = await sacredJourney.getPendingInterpretations();
+  pending = data.pending || [];
+} catch (e) {
+  error = e instanceof Error ? e.message : 'Failed to load pending interpretations';
+}
+
+// Group by date
+const groupedByDate = pending.reduce((acc, interp) => {
+  const date = interp.date;
+  if (!acc[date]) acc[date] = [];
+  acc[date].push(interp);
+  return acc;
+}, {} as Record<string, typeof pending>);
+
+const formatDate = (dateStr: string) => {
+  return new Date(dateStr).toLocaleDateString('en-US', {
+    weekday: 'long',
+    month: 'short',
+    day: 'numeric',
+  });
+};
+---
+
+<Layout title="Practice Queue - Paths of Reverence">
+  <div class="pending-page">
+    <header class="page-header">
+      <h1>Practice Queue</h1>
+      <p class="subtitle">Interpretations awaiting your reflection</p>
+    </header>
+    
+    {error ? (
+      <div class="error-state">
+        <p>{error}</p>
+      </div>
+    ) : pending.length === 0 ? (
+      <div class="empty-state">
+        <div class="empty-icon">✦</div>
+        <h2>All Clear</h2>
+        <p>No pending interpretations. Your practice is complete for now.</p>
+        <a href="/" class="btn">Return to Today's Spread</a>
+      </div>
+    ) : (
+      <div class="pending-list">
+        {Object.entries(groupedByDate).map(([date, interpretations]) => (
+          <section class="date-group">
+            <h2 class="date-header">{formatDate(date)}</h2>
+            <div class="interpretations">
+              {interpretations.map((interp: any) => (
+                <article class={`pending-card domain-${interp.domain.toLowerCase()}`}>
+                  <div class="card-header">
+                    <span class="domain-badge">{interp.domain}</span>
+                    <time class="timestamp">
+                      {new Date(interp.created_at).toLocaleTimeString('en-US', { 
+                        hour: 'numeric', 
+                        minute: '2-digit' 
+                      })}
+                    </time>
+                  </div>
+                  
+                  <blockquote class="question">
+                    {interp.introspection_question}
+                  </blockquote>
+                  
+                  <div class="card-actions">
+                    <a 
+                      href={`/practice/respond/${interp.interpretation_id}`} 
+                      class="btn btn-primary"
+                    >
+                      Reflect & Respond
+                    </a>
+                  </div>
+                </article>
+              ))}
+            </div>
+          </section>
+        ))}
+      </div>
+    )}
+  </div>
+</Layout>
+
+<style>
+  .pending-page {
+    max-width: 800px;
+    margin: 0 auto;
+  }
+  
+  .page-header {
+    text-align: center;
+    margin-bottom: var(--space-2xl);
+  }
+  
+  .subtitle {
+    color: var(--color-text-muted);
+    margin: 0;
+  }
+  
+  .empty-state {
+    text-align: center;
+    padding: var(--space-2xl);
+    background: var(--color-bg-elevated);
+    border: 1px dashed var(--color-border);
+    border-radius: var(--card-radius);
+  }
+  
+  .empty-icon {
+    font-size: 3rem;
+    color: var(--color-gold);
+    margin-bottom: var(--space-md);
+  }
+  
+  .empty-state h2 {
+    margin-bottom: var(--space-sm);
+  }
+  
+  .empty-state p {
+    color: var(--color-text-muted);
+    margin-bottom: var(--space-lg);
+  }
+  
+  .date-group {
+    margin-bottom: var(--space-2xl);
+  }
+  
+  .date-header {
+    font-size: 1rem;
+    color: var(--color-text-muted);
+    border-bottom: 1px solid var(--color-border);
+    padding-bottom: var(--space-sm);
+    margin-bottom: var(--space-lg);
+  }
+  
+  .interpretations {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-lg);
+  }
+  
+  .pending-card {
+    background: var(--color-bg-card);
+    border: 1px solid var(--color-border);
+    border-radius: var(--card-radius);
+    padding: var(--space-lg);
+    border-left: 4px solid var(--domain-color, var(--color-border));
+  }
+  
+  .pending-card.domain-body { --domain-color: var(--color-accent-body); }
+  .pending-card.domain-mind { --domain-color: var(--color-accent-mind); }
+  .pending-card.domain-heart { --domain-color: var(--color-accent-heart); }
+  .pending-card.domain-spirit { --domain-color: var(--color-accent-spirit); }
+  
+  .card-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: var(--space-md);
+  }
+  
+  .domain-badge {
+    font-family: var(--font-display);
+    font-size: 0.85rem;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    color: var(--domain-color);
+  }
+  
+  .timestamp {
+    font-size: 0.85rem;
+    color: var(--color-text-dim);
+  }
+  
+  .question {
+    margin: 0 0 var(--space-lg);
+    padding: var(--space-md);
+    background: var(--color-bg-elevated);
+    border-radius: var(--card-radius);
+    font-style: italic;
+    font-size: 1.1rem;
+    line-height: 1.5;
+    color: var(--color-text);
+    border-left: 2px solid var(--domain-color, var(--color-gold-dim));
+  }
+  
+  .card-actions {
+    display: flex;
+    justify-content: flex-end;
+  }
+  
+  .error-state {
+    text-align: center;
+    padding: var(--space-xl);
+    color: var(--color-accent-heart);
+  }
+</style>

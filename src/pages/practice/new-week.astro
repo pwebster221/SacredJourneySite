@@ -1,0 +1,354 @@
+---
+/**
+ * New Weekly Reading - Card Input
+ * 
+ * Draw your 11 cards and begin a new week of practice.
+ * Sunday start: 7 planetary cards + 4 domain cards
+ */
+import Layout from '../../layouts/Layout.astro';
+
+// Calculate this Sunday's date (or today if it's Sunday)
+const today = new Date();
+const dayOfWeek = today.getDay(); // 0 = Sunday
+const sunday = new Date(today);
+sunday.setDate(today.getDate() - dayOfWeek);
+const weekStart = sunday.toISOString().split('T')[0];
+
+const weekDays = [
+  { key: 'Sunday', planet: 'Sun', symbol: '☉' },
+  { key: 'Monday', planet: 'Moon', symbol: '☽' },
+  { key: 'Tuesday', planet: 'Mars', symbol: '♂' },
+  { key: 'Wednesday', planet: 'Mercury', symbol: '☿' },
+  { key: 'Thursday', planet: 'Jupiter', symbol: '♃' },
+  { key: 'Friday', planet: 'Venus', symbol: '♀' },
+  { key: 'Saturday', planet: 'Saturn', symbol: '♄' },
+];
+
+const domains = [
+  { key: 'Body', element: 'Earth', color: 'body' },
+  { key: 'Mind', element: 'Air', color: 'mind' },
+  { key: 'Heart', element: 'Water', color: 'heart' },
+  { key: 'Spirit', element: 'Fire', color: 'spirit' },
+];
+
+// Major Arcana for autocomplete suggestions
+const majorArcana = [
+  'The Fool', 'The Magician', 'The High Priestess', 'The Empress', 'The Emperor',
+  'The Hierophant', 'The Lovers', 'The Chariot', 'Strength', 'The Hermit',
+  'Wheel of Fortune', 'Justice', 'The Hanged Man', 'Death', 'Temperance',
+  'The Devil', 'The Tower', 'The Star', 'The Moon', 'The Sun', 'Judgement', 'The World'
+];
+---
+
+<Layout title="Begin New Week - Paths of Reverence">
+  <div class="new-week-page">
+    <header class="page-header">
+      <h1>Begin Weekly Reading</h1>
+      <p class="week-date">Week of {new Date(weekStart).toLocaleDateString('en-US', { 
+        month: 'long', day: 'numeric', year: 'numeric' 
+      })}</p>
+    </header>
+    
+    <form id="weekly-form" class="spread-form">
+      <input type="hidden" name="week_start" value={weekStart} />
+      
+      <section class="card-section">
+        <h2>Planetary Cards</h2>
+        <p class="section-desc">Draw one card for each day's planetary ruler</p>
+        
+        <div class="planetary-grid">
+          {weekDays.map((day) => (
+            <div class="card-input-group">
+              <label for={`planetary-${day.key}`}>
+                <span class="planet-symbol">{day.symbol}</span>
+                <span class="day-name">{day.key}</span>
+                <span class="planet-name">{day.planet}</span>
+              </label>
+              <input 
+                type="text" 
+                id={`planetary-${day.key}`}
+                name={`planetary_${day.key}`}
+                placeholder="Card name..."
+                list="tarot-cards"
+                required
+                autocomplete="off"
+              />
+            </div>
+          ))}
+        </div>
+      </section>
+      
+      <section class="card-section">
+        <h2>Domain Cards</h2>
+        <p class="section-desc">Draw one card for each domain of experience</p>
+        
+        <div class="domain-grid">
+          {domains.map((domain) => (
+            <div class={`card-input-group domain-${domain.color}`}>
+              <label for={`domain-${domain.key}`}>
+                <span class="domain-name">{domain.key}</span>
+                <span class="element-name">{domain.element}</span>
+              </label>
+              <input 
+                type="text" 
+                id={`domain-${domain.key}`}
+                name={`domain_${domain.key}`}
+                placeholder="Card name..."
+                list="tarot-cards"
+                required
+                autocomplete="off"
+              />
+            </div>
+          ))}
+        </div>
+      </section>
+      
+      <datalist id="tarot-cards">
+        {majorArcana.map((card) => <option value={card} />)}
+      </datalist>
+      
+      <div class="form-actions">
+        <a href="/" class="btn">Cancel</a>
+        <button type="submit" class="btn btn-primary" id="submit-btn">
+          Begin Week
+        </button>
+      </div>
+    </form>
+    
+    <div class="success-state" id="success" style="display: none;">
+      <div class="success-icon">✦</div>
+      <h2>Week Initiated</h2>
+      <p>Your weekly reading has been recorded. Begin your daily practice.</p>
+      <a href="/" class="btn btn-primary">Go to Today's Spread</a>
+    </div>
+    
+    <div class="error-state" id="error" style="display: none;">
+      <h2>Something went wrong</h2>
+      <p id="error-message"></p>
+      <button class="btn" onclick="document.getElementById('error').style.display='none'; document.getElementById('weekly-form').style.display='block';">
+        Try Again
+      </button>
+    </div>
+  </div>
+</Layout>
+
+<script>
+  const API_BASE = 'https://neo4jmiddleware.robin-alligator.ts.net';
+  
+  const form = document.getElementById('weekly-form') as HTMLFormElement;
+  const submitBtn = document.getElementById('submit-btn');
+  const successEl = document.getElementById('success');
+  const errorEl = document.getElementById('error');
+  const errorMsg = document.getElementById('error-message');
+  
+  form?.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    
+    const formData = new FormData(form);
+    
+    // Build the request payload
+    const payload = {
+      week_start: formData.get('week_start'),
+      planetary_cards: {
+        Sunday: formData.get('planetary_Sunday'),
+        Monday: formData.get('planetary_Monday'),
+        Tuesday: formData.get('planetary_Tuesday'),
+        Wednesday: formData.get('planetary_Wednesday'),
+        Thursday: formData.get('planetary_Thursday'),
+        Friday: formData.get('planetary_Friday'),
+        Saturday: formData.get('planetary_Saturday'),
+      },
+      domain_cards: {
+        Body: formData.get('domain_Body'),
+        Mind: formData.get('domain_Mind'),
+        Heart: formData.get('domain_Heart'),
+        Spirit: formData.get('domain_Spirit'),
+      },
+    };
+    
+    submitBtn!.textContent = 'Creating...';
+    submitBtn!.setAttribute('disabled', 'true');
+    
+    try {
+      const response = await fetch(`${API_BASE}/sacred-journey/weekly-reading/create`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+      
+      if (!response.ok) {
+        const error = await response.json();
+        throw new Error(error.detail || `Failed: ${response.status}`);
+      }
+      
+      form.style.display = 'none';
+      successEl!.style.display = 'flex';
+      
+    } catch (err) {
+      submitBtn!.textContent = 'Begin Week';
+      submitBtn!.removeAttribute('disabled');
+      errorMsg!.textContent = err instanceof Error ? err.message : 'Failed to create weekly reading';
+      form.style.display = 'none';
+      errorEl!.style.display = 'flex';
+    }
+  });
+</script>
+
+<style>
+  .new-week-page {
+    max-width: 900px;
+    margin: 0 auto;
+  }
+  
+  .page-header {
+    text-align: center;
+    margin-bottom: var(--space-2xl);
+  }
+  
+  .week-date {
+    color: var(--color-gold);
+    font-family: var(--font-display);
+    font-size: 1.1rem;
+    margin: 0;
+  }
+  
+  .card-section {
+    margin-bottom: var(--space-2xl);
+  }
+  
+  .card-section h2 {
+    text-align: center;
+    margin-bottom: var(--space-xs);
+  }
+  
+  .section-desc {
+    text-align: center;
+    color: var(--color-text-muted);
+    margin-bottom: var(--space-lg);
+  }
+  
+  .planetary-grid {
+    display: grid;
+    grid-template-columns: repeat(7, 1fr);
+    gap: var(--space-sm);
+  }
+  
+  .domain-grid {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: var(--space-md);
+  }
+  
+  .card-input-group {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-xs);
+  }
+  
+  .card-input-group label {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 2px;
+    cursor: pointer;
+  }
+  
+  .planet-symbol {
+    font-size: 1.5rem;
+    color: var(--color-gold);
+  }
+  
+  .day-name {
+    font-family: var(--font-display);
+    font-size: 0.75rem;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    color: var(--color-text);
+  }
+  
+  .planet-name {
+    font-size: 0.7rem;
+    color: var(--color-text-dim);
+  }
+  
+  .domain-name {
+    font-family: var(--font-display);
+    font-size: 0.9rem;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+  }
+  
+  .element-name {
+    font-size: 0.75rem;
+    color: var(--color-text-dim);
+  }
+  
+  /* Domain colors */
+  .domain-body .domain-name { color: var(--color-accent-body); }
+  .domain-mind .domain-name { color: var(--color-accent-mind); }
+  .domain-heart .domain-name { color: var(--color-accent-heart); }
+  .domain-spirit .domain-name { color: var(--color-accent-spirit); }
+  
+  .card-input-group input {
+    width: 100%;
+    padding: var(--space-sm);
+    font-family: var(--font-body);
+    font-size: 0.85rem;
+    background: var(--color-bg-card);
+    border: 1px solid var(--color-border);
+    border-radius: var(--card-radius);
+    color: var(--color-text);
+    text-align: center;
+  }
+  
+  .card-input-group input:focus {
+    outline: none;
+    border-color: var(--color-gold);
+  }
+  
+  .card-input-group input::placeholder {
+    color: var(--color-text-dim);
+    font-size: 0.8rem;
+  }
+  
+  .form-actions {
+    display: flex;
+    justify-content: center;
+    gap: var(--space-md);
+    margin-top: var(--space-xl);
+  }
+  
+  .success-state, .error-state {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    text-align: center;
+    padding: var(--space-2xl);
+  }
+  
+  .success-icon {
+    font-size: 4rem;
+    color: var(--color-gold);
+    margin-bottom: var(--space-md);
+  }
+  
+  @media (max-width: 768px) {
+    .planetary-grid {
+      grid-template-columns: repeat(4, 1fr);
+    }
+    
+    .domain-grid {
+      grid-template-columns: repeat(2, 1fr);
+    }
+    
+    .planet-symbol {
+      font-size: 1.2rem;
+    }
+  }
+  
+  @media (max-width: 480px) {
+    .planetary-grid {
+      grid-template-columns: repeat(2, 1fr);
+    }
+  }
+</style>

@@ -1,22 +1,247 @@
+---
+/**
+ * Paths of Reverence - Main Layout
+ * 
+ * Sacred Journey practice interface with esoteric styling
+ */
+
+interface Props {
+  title?: string;
+  description?: string;
+}
+
+const { 
+  title = 'Paths of Reverence', 
+  description = 'Sacred Journey - Daily Tarot Practice & Interpretation Log'
+} = Astro.props;
+---
+
 <!doctype html>
 <html lang="en">
-	<head>
-		<meta charset="UTF-8" />
-		<meta name="viewport" content="width=device-width" />
-		<link rel="icon" type="image/svg+xml" href="/favicon.svg" />
-		<meta name="generator" content={Astro.generator} />
-		<title>Astro Basics</title>
-	</head>
-	<body>
-		<slot />
-	</body>
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="description" content={description} />
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <meta name="generator" content={Astro.generator} />
+    <title>{title}</title>
+    
+    <!-- Fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@400;500;600;700&family=Cormorant+Garamond:ital,wght@0,400;0,500;0,600;1,400;1,500&display=swap" rel="stylesheet">
+  </head>
+  <body>
+    <div class="app">
+      <header class="site-header">
+        <nav class="nav">
+          <a href="/" class="nav-brand">Paths of Reverence</a>
+          <div class="nav-links">
+            <a href="/" class="nav-link">Today</a>
+            <a href="/practice/pending" class="nav-link">Practice</a>
+            <a href="/history" class="nav-link">Archive</a>
+          </div>
+        </nav>
+      </header>
+      
+      <main class="main">
+        <slot />
+      </main>
+      
+      <footer class="site-footer">
+        <p>Sacred Journey · The Esoteric Repository · The 78</p>
+      </footer>
+    </div>
+  </body>
 </html>
 
+<style is:global>
+  :root {
+    /* Sacred color palette */
+    --color-bg-deep: #0a0a0f;
+    --color-bg: #12121a;
+    --color-bg-elevated: #1a1a24;
+    --color-bg-card: #22222e;
+    
+    --color-gold: #c9a227;
+    --color-gold-light: #e6c656;
+    --color-gold-dim: #8b7019;
+    
+    --color-text: #e8e6e3;
+    --color-text-muted: #a8a5a0;
+    --color-text-dim: #6b6860;
+    
+    --color-accent-body: #7c9885;    /* Earth green */
+    --color-accent-mind: #8b9dc3;    /* Air blue */
+    --color-accent-heart: #c98b8b;   /* Water rose */
+    --color-accent-spirit: #c9a8d3;  /* Fire violet */
+    
+    --color-border: #2a2a38;
+    --color-border-light: #3a3a48;
+    
+    /* Typography */
+    --font-display: 'Cinzel', serif;
+    --font-body: 'Cormorant Garamond', serif;
+    
+    /* Spacing */
+    --space-xs: 0.25rem;
+    --space-sm: 0.5rem;
+    --space-md: 1rem;
+    --space-lg: 1.5rem;
+    --space-xl: 2rem;
+    --space-2xl: 3rem;
+    
+    /* Sizing */
+    --max-width: 1200px;
+    --card-radius: 8px;
+  }
+  
+  *, *::before, *::after {
+    box-sizing: border-box;
+  }
+  
+  html, body {
+    margin: 0;
+    padding: 0;
+    min-height: 100vh;
+    background: var(--color-bg);
+    color: var(--color-text);
+    font-family: var(--font-body);
+    font-size: 18px;
+    line-height: 1.6;
+  }
+  
+  h1, h2, h3, h4 {
+    font-family: var(--font-display);
+    font-weight: 500;
+    color: var(--color-gold);
+    letter-spacing: 0.05em;
+    margin: 0 0 var(--space-md);
+  }
+  
+  h1 { font-size: 2rem; }
+  h2 { font-size: 1.5rem; }
+  h3 { font-size: 1.25rem; }
+  
+  a {
+    color: var(--color-gold);
+    text-decoration: none;
+    transition: color 0.2s ease;
+  }
+  
+  a:hover {
+    color: var(--color-gold-light);
+  }
+  
+  p {
+    margin: 0 0 var(--space-md);
+  }
+  
+  /* Card component base */
+  .card {
+    background: var(--color-bg-card);
+    border: 1px solid var(--color-border);
+    border-radius: var(--card-radius);
+    padding: var(--space-lg);
+  }
+  
+  /* Domain colors */
+  .domain-body { --domain-color: var(--color-accent-body); }
+  .domain-mind { --domain-color: var(--color-accent-mind); }
+  .domain-heart { --domain-color: var(--color-accent-heart); }
+  .domain-spirit { --domain-color: var(--color-accent-spirit); }
+  
+  /* Button base */
+  .btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    padding: var(--space-sm) var(--space-lg);
+    font-family: var(--font-display);
+    font-size: 0.9rem;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    border: 1px solid var(--color-gold);
+    border-radius: var(--card-radius);
+    background: transparent;
+    color: var(--color-gold);
+    cursor: pointer;
+    transition: all 0.2s ease;
+  }
+  
+  .btn:hover {
+    background: var(--color-gold);
+    color: var(--color-bg);
+  }
+  
+  .btn-primary {
+    background: var(--color-gold);
+    color: var(--color-bg);
+  }
+  
+  .btn-primary:hover {
+    background: var(--color-gold-light);
+  }
+</style>
+
 <style>
-	html,
-	body {
-		margin: 0;
-		width: 100%;
-		height: 100%;
-	}
+  .app {
+    display: flex;
+    flex-direction: column;
+    min-height: 100vh;
+  }
+  
+  .site-header {
+    background: var(--color-bg-deep);
+    border-bottom: 1px solid var(--color-border);
+    padding: var(--space-md) var(--space-lg);
+  }
+  
+  .nav {
+    max-width: var(--max-width);
+    margin: 0 auto;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+  }
+  
+  .nav-brand {
+    font-family: var(--font-display);
+    font-size: 1.25rem;
+    letter-spacing: 0.1em;
+  }
+  
+  .nav-links {
+    display: flex;
+    gap: var(--space-lg);
+  }
+  
+  .nav-link {
+    font-family: var(--font-display);
+    font-size: 0.85rem;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--color-text-muted);
+  }
+  
+  .nav-link:hover {
+    color: var(--color-gold);
+  }
+  
+  .main {
+    flex: 1;
+    max-width: var(--max-width);
+    margin: 0 auto;
+    padding: var(--space-xl) var(--space-lg);
+    width: 100%;
+  }
+  
+  .site-footer {
+    background: var(--color-bg-deep);
+    border-top: 1px solid var(--color-border);
+    padding: var(--space-lg);
+    text-align: center;
+    color: var(--color-text-dim);
+    font-size: 0.9rem;
+  }
 </style>

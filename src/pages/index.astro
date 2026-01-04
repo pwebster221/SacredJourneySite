@@ -1,11 +1,475 @@
 ---
-import Welcome from '../components/Welcome.astro';
+/**
+ * Paths of Reverence - Home / Today's Spread
+ * 
+ * Displays the current weekly reading and today's daily spread
+ * with interactive interpretation status
+ */
 import Layout from '../layouts/Layout.astro';
+import { sacredJourney } from '../lib/sacred-journey';
 
-// Welcome to Astro! Wondering what to do next? Check out the Astro documentation at https://docs.astro.build
-// Don't want to use any of this? Delete everything in this file, the `assets`, `components`, and `layouts` directories, and start fresh.
+// Fetch current spread from API
+let currentSpread = null;
+let error = null;
+let noActiveWeek = false;
+
+try {
+  currentSpread = await sacredJourney.getCurrentSpread();
+} catch (e) {
+  const message = e instanceof Error ? e.message : 'Failed to load current spread';
+  // 404 means no active weekly reading - not an error, just needs a new week
+  if (message.includes('404')) {
+    noActiveWeek = true;
+  } else {
+    error = message;
+  }
+}
+
+// Parse date string as local date (avoid timezone issues)
+const parseLocalDate = (dateStr: string) => {
+  const [year, month, day] = dateStr.split('-').map(Number);
+  return new Date(year, month - 1, day);
+};
+
+// Helper to format date
+const formatDate = (dateStr: string) => {
+  return parseLocalDate(dateStr).toLocaleDateString('en-US', {
+    weekday: 'long',
+    month: 'long',
+    day: 'numeric',
+  });
+};
+
+// Days of the week in order
+const weekDays = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+const domains = ['Body', 'Mind', 'Heart', 'Spirit'];
+
+// Get today's day name
+const today = new Date().toLocaleDateString('en-US', { weekday: 'long' });
 ---
 
-<Layout>
-	<Welcome />
+<Layout title="Today's Spread - Paths of Reverence">
+  <div class="spread-page">
+    {error ? (
+      <div class="error-state">
+        <h2>Connection Issue</h2>
+        <p>{error}</p>
+        <p class="hint">Ensure the Sacred Journey API is accessible.</p>
+      </div>
+    ) : (noActiveWeek || !currentSpread) ? (
+      <div class="empty-state">
+        <div class="empty-icon">✦</div>
+        <h2>Begin a New Week</h2>
+        <p>Today is {today}. Draw your cards and start your weekly practice.</p>
+        <a href="/practice/new-week" class="btn btn-primary">Begin New Week</a>
+        <a href="/history" class="btn" style="margin-left: var(--space-md);">View Archive</a>
+      </div>
+    ) : (
+      <>
+        {/* Weekly Overview */}
+        <section class="weekly-overview">
+          <header class="section-header">
+            <h1>Week of {formatDate(currentSpread.week_start)}</h1>
+            <div class="week-progress">
+              <span class="progress-text">{currentSpread.days_complete}/7 days complete</span>
+              <div class="progress-bar">
+                <div class="progress-fill" style={`width: ${(currentSpread.days_complete / 7) * 100}%`}></div>
+              </div>
+            </div>
+          </header>
+          
+          {/* Planetary Cards Row */}
+          <div class="planetary-spread">
+            <h2>Planetary Cards</h2>
+            <div class="card-row">
+              {weekDays.map((day) => (
+                <div class={`spread-card ${day === today ? 'is-today' : ''}`}>
+                  <span class="card-day">{day.slice(0, 3)}</span>
+                  <span class="card-name">{currentSpread.planetary_cards[day]}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+          
+          {/* Domain Cards Row */}
+          <div class="domain-spread">
+            <h2>Domain Cards</h2>
+            <div class="card-row domains">
+              {domains.map((domain) => (
+                <div class={`spread-card domain-${domain.toLowerCase()}`}>
+                  <span class="card-domain">{domain}</span>
+                  <span class="card-name">{currentSpread.domain_cards[domain]}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+        </section>
+        
+        {/* Today's Practice */}
+        {currentSpread.today ? (
+          <section class="today-practice">
+            <header class="section-header">
+              <h2>Today's Practice — {currentSpread.today.day_of_week}</h2>
+              <span class={`status-badge status-${currentSpread.today.status}`}>
+                {currentSpread.today.status}
+              </span>
+            </header>
+            
+            <div class="today-cards">
+              <div class="planetary-focus">
+                <span class="label">Planetary Focus</span>
+                <span class="value">{currentSpread.today.planetary_card}</span>
+              </div>
+            </div>
+            
+            {/* Interpretation Status */}
+            <div class="interpretations-grid">
+              {currentSpread.today.interpretations.map((interp) => (
+                <div class={`interpretation-card domain-${interp.domain.toLowerCase()}`}>
+                  <div class="interp-header">
+                    <span class="interp-domain">{interp.domain}</span>
+                    <span class={`interp-status status-${interp.status}`}>{interp.status}</span>
+                  </div>
+                  
+                  {interp.status === 'ready' && interp.introspection_question && (
+                    <div class="interp-question">
+                      <p>{interp.introspection_question}</p>
+                      <a href={`/practice/${currentSpread.today.date}/${interp.domain.toLowerCase()}`} class="btn">
+                        Respond
+                      </a>
+                    </div>
+                  )}
+                  
+                  {interp.status === 'complete' && (
+                    <div class="interp-complete">
+                      <span class="checkmark">✓</span>
+                      <span>Completed</span>
+                    </div>
+                  )}
+                  
+                  {interp.status === 'prepared' && (
+                    <div class="interp-waiting">
+                      <span>Awaiting preparation...</span>
+                    </div>
+                  )}
+                </div>
+              ))}
+            </div>
+            
+            {/* Daily Synthesis */}
+            {currentSpread.today.synthesis && (
+              <div class="daily-synthesis">
+                <h3>Daily Synthesis</h3>
+                <p>{currentSpread.today.synthesis}</p>
+              </div>
+            )}
+            
+            {/* Action buttons */}
+            {currentSpread.today.status !== 'complete' && (
+              <div class="practice-actions">
+                <a href={`/practice/${currentSpread.today.date}`} class="btn btn-primary">
+                  Continue Practice
+                </a>
+              </div>
+            )}
+          </section>
+        ) : (
+          <section class="begin-today">
+            <h2>Begin Today's Practice</h2>
+            <p>Start your daily entry to receive today's interpretations and introspection questions.</p>
+            <form method="POST" action="/api/daily/begin">
+              <button type="submit" class="btn btn-primary">Begin Daily Entry</button>
+            </form>
+          </section>
+        )}
+      </>
+    )}
+  </div>
 </Layout>
+
+<style>
+  .spread-page {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-2xl);
+  }
+  
+  .section-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: var(--space-lg);
+    flex-wrap: wrap;
+    gap: var(--space-md);
+  }
+  
+  .week-progress {
+    display: flex;
+    align-items: center;
+    gap: var(--space-md);
+  }
+  
+  .progress-text {
+    color: var(--color-text-muted);
+    font-size: 0.9rem;
+  }
+  
+  .progress-bar {
+    width: 120px;
+    height: 6px;
+    background: var(--color-bg-elevated);
+    border-radius: 3px;
+    overflow: hidden;
+  }
+  
+  .progress-fill {
+    height: 100%;
+    background: var(--color-gold);
+    transition: width 0.3s ease;
+  }
+  
+  /* Card spreads */
+  .planetary-spread,
+  .domain-spread {
+    margin-bottom: var(--space-xl);
+  }
+  
+  .card-row {
+    display: grid;
+    grid-template-columns: repeat(7, 1fr);
+    gap: var(--space-sm);
+  }
+  
+  .card-row.domains {
+    grid-template-columns: repeat(4, 1fr);
+  }
+  
+  .spread-card {
+    background: var(--color-bg-card);
+    border: 1px solid var(--color-border);
+    border-radius: var(--card-radius);
+    padding: var(--space-md);
+    text-align: center;
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-xs);
+    transition: all 0.2s ease;
+  }
+  
+  .spread-card.is-today {
+    border-color: var(--color-gold);
+    box-shadow: 0 0 12px rgba(201, 162, 39, 0.2);
+  }
+  
+  .spread-card .card-day,
+  .spread-card .card-domain {
+    font-family: var(--font-display);
+    font-size: 0.75rem;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    color: var(--color-text-dim);
+  }
+  
+  .spread-card .card-name {
+    font-size: 0.9rem;
+    color: var(--color-text);
+  }
+  
+  /* Domain colors */
+  .spread-card.domain-body { border-top: 3px solid var(--color-accent-body); }
+  .spread-card.domain-mind { border-top: 3px solid var(--color-accent-mind); }
+  .spread-card.domain-heart { border-top: 3px solid var(--color-accent-heart); }
+  .spread-card.domain-spirit { border-top: 3px solid var(--color-accent-spirit); }
+  
+  /* Today's practice */
+  .today-practice {
+    background: var(--color-bg-elevated);
+    border: 1px solid var(--color-border);
+    border-radius: var(--card-radius);
+    padding: var(--space-xl);
+  }
+  
+  .today-cards {
+    margin-bottom: var(--space-xl);
+  }
+  
+  .planetary-focus {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-xs);
+  }
+  
+  .planetary-focus .label {
+    font-family: var(--font-display);
+    font-size: 0.8rem;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    color: var(--color-text-dim);
+  }
+  
+  .planetary-focus .value {
+    font-size: 1.25rem;
+    color: var(--color-gold);
+  }
+  
+  /* Interpretations grid */
+  .interpretations-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+    gap: var(--space-md);
+    margin-bottom: var(--space-xl);
+  }
+  
+  .interpretation-card {
+    background: var(--color-bg-card);
+    border: 1px solid var(--color-border);
+    border-radius: var(--card-radius);
+    padding: var(--space-md);
+    border-left: 4px solid var(--domain-color, var(--color-border));
+  }
+  
+  .interpretation-card.domain-body { --domain-color: var(--color-accent-body); }
+  .interpretation-card.domain-mind { --domain-color: var(--color-accent-mind); }
+  .interpretation-card.domain-heart { --domain-color: var(--color-accent-heart); }
+  .interpretation-card.domain-spirit { --domain-color: var(--color-accent-spirit); }
+  
+  .interp-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: var(--space-sm);
+  }
+  
+  .interp-domain {
+    font-family: var(--font-display);
+    font-size: 0.9rem;
+    color: var(--domain-color);
+  }
+  
+  .interp-status {
+    font-size: 0.75rem;
+    padding: 2px 8px;
+    border-radius: 4px;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+  }
+  
+  .status-badge,
+  .interp-status {
+    background: var(--color-bg);
+    color: var(--color-text-muted);
+  }
+  
+  .status-active,
+  .status-ready {
+    background: rgba(201, 162, 39, 0.2);
+    color: var(--color-gold);
+  }
+  
+  .status-complete {
+    background: rgba(124, 152, 133, 0.2);
+    color: var(--color-accent-body);
+  }
+  
+  .interp-question {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-sm);
+  }
+  
+  .interp-question p {
+    font-style: italic;
+    color: var(--color-text-muted);
+    font-size: 0.95rem;
+    margin: 0;
+  }
+  
+  .interp-complete,
+  .interp-waiting {
+    display: flex;
+    align-items: center;
+    gap: var(--space-sm);
+    color: var(--color-text-dim);
+    font-size: 0.9rem;
+  }
+  
+  .checkmark {
+    color: var(--color-accent-body);
+  }
+  
+  /* Daily synthesis */
+  .daily-synthesis {
+    background: var(--color-bg-card);
+    border-radius: var(--card-radius);
+    padding: var(--space-lg);
+    margin-bottom: var(--space-lg);
+  }
+  
+  .daily-synthesis h3 {
+    font-size: 1rem;
+    margin-bottom: var(--space-sm);
+  }
+  
+  .daily-synthesis p {
+    margin: 0;
+    font-style: italic;
+    color: var(--color-text-muted);
+  }
+  
+  /* Actions */
+  .practice-actions {
+    display: flex;
+    gap: var(--space-md);
+  }
+  
+  /* Begin today section */
+  .begin-today {
+    text-align: center;
+    padding: var(--space-2xl);
+    background: var(--color-bg-elevated);
+    border: 1px dashed var(--color-border);
+    border-radius: var(--card-radius);
+  }
+  
+  .begin-today p {
+    color: var(--color-text-muted);
+    margin-bottom: var(--space-lg);
+  }
+  
+  /* Error/empty states */
+  .error-state,
+  .empty-state {
+    text-align: center;
+    padding: var(--space-2xl);
+  }
+  
+  .error-state .hint {
+    color: var(--color-text-dim);
+    font-size: 0.9rem;
+  }
+  
+  /* Responsive */
+  @media (max-width: 768px) {
+    .card-row {
+      grid-template-columns: repeat(4, 1fr);
+    }
+    
+    .card-row.domains {
+      grid-template-columns: repeat(2, 1fr);
+    }
+    
+    .spread-card {
+      padding: var(--space-sm);
+    }
+    
+    .spread-card .card-name {
+      font-size: 0.8rem;
+    }
+  }
+  
+  @media (max-width: 480px) {
+    .card-row {
+      grid-template-columns: repeat(2, 1fr);
+    }
+  }
+</style>

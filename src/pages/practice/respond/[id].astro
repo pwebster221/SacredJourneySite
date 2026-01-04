@@ -1,0 +1,244 @@
+---
+/**
+ * Respond to Interpretation
+ * 
+ * The core training data collection page.
+ * User responds to introspection question, creating scored examples for The 78.
+ */
+import Layout from '../../../layouts/Layout.astro';
+
+const { id } = Astro.params;
+---
+
+<Layout title="Reflect & Respond - Paths of Reverence">
+  <div class="respond-page" data-interpretation-id={id}>
+    <div class="loading-state" id="loading">
+      <div class="spinner"></div>
+      <p>Loading interpretation...</p>
+    </div>
+    
+    <div class="content" id="content" style="display: none;">
+      <header class="page-header">
+        <a href="/practice/pending" class="back-link">← Back to Queue</a>
+        <div class="header-meta">
+          <span class="domain-badge" id="domain-badge"></span>
+          <time id="date-display"></time>
+        </div>
+      </header>
+      
+      <section class="interpretation-section">
+        <h2>Today's Interpretation</h2>
+        <div class="interpretation-text" id="interpretation-text"></div>
+      </section>
+      
+      <section class="question-section">
+        <h2>Introspection Question</h2>
+        <blockquote class="question" id="question-text"></blockquote>
+      </section>
+      
+      <section class="response-section">
+        <h2>Your Response</h2>
+        <form id="response-form">
+          <textarea 
+            id="response-input"
+            name="response"
+            placeholder="Take a moment to reflect... What arises for you?"
+            rows="8"
+            required
+          ></textarea>
+          
+          <div class="form-footer">
+            <p class="guidance">
+              Write freely. Your response informs both your practice and the evolving 
+              understanding of these archetypal patterns.
+            </p>
+            <button type="submit" class="btn btn-primary" id="submit-btn">
+              Submit Response
+            </button>
+          </div>
+        </form>
+      </section>
+    </div>
+    
+    <div class="success-state" id="success" style="display: none;">
+      <div class="success-icon">✦</div>
+      <h2>Response Recorded</h2>
+      <p>Your reflection has been saved.</p>
+      <div class="success-actions">
+        <a href="/practice/pending" class="btn">Continue Practice</a>
+        <a href="/" class="btn btn-primary">Return to Today</a>
+      </div>
+    </div>
+    
+    <div class="error-state" id="error" style="display: none;">
+      <h2>Something went wrong</h2>
+      <p id="error-message"></p>
+      <button class="btn" onclick="location.reload()">Try Again</button>
+    </div>
+  </div>
+</Layout>
+
+<script>
+  const API_BASE = 'https://neo4jmiddleware.robin-alligator.ts.net';
+  
+  const page = document.querySelector('.respond-page') as HTMLElement;
+  const interpretationId = page?.dataset.interpretationId;
+  
+  const loadingEl = document.getElementById('loading');
+  const contentEl = document.getElementById('content');
+  const successEl = document.getElementById('success');
+  const errorEl = document.getElementById('error');
+  const errorMsg = document.getElementById('error-message');
+  
+  const domainBadge = document.getElementById('domain-badge');
+  const dateDisplay = document.getElementById('date-display');
+  const interpretationText = document.getElementById('interpretation-text');
+  const questionText = document.getElementById('question-text');
+  const responseForm = document.getElementById('response-form') as HTMLFormElement;
+  const responseInput = document.getElementById('response-input') as HTMLTextAreaElement;
+  const submitBtn = document.getElementById('submit-btn');
+  
+  function showState(state: 'loading' | 'content' | 'success' | 'error') {
+    loadingEl!.style.display = state === 'loading' ? 'flex' : 'none';
+    contentEl!.style.display = state === 'content' ? 'block' : 'none';
+    successEl!.style.display = state === 'success' ? 'flex' : 'none';
+    errorEl!.style.display = state === 'error' ? 'flex' : 'none';
+  }
+  
+  function showError(message: string) {
+    errorMsg!.textContent = message;
+    showState('error');
+  }
+  
+  async function loadInterpretation() {
+    try {
+      const response = await fetch(`${API_BASE}/sacred-journey/interpretation/pending`);
+      if (!response.ok) throw new Error('Failed to fetch interpretation');
+      
+      const data = await response.json();
+      const interp = data.pending.find((p: any) => p.interpretation_id === interpretationId);
+      
+      if (!interp) {
+        showError('Interpretation not found or already completed.');
+        return;
+      }
+      
+      domainBadge!.textContent = interp.domain;
+      domainBadge!.className = `domain-badge domain-${interp.domain.toLowerCase()}`;
+      
+      dateDisplay!.textContent = new Date(interp.date).toLocaleDateString('en-US', {
+        weekday: 'long', month: 'long', day: 'numeric'
+      });
+      
+      questionText!.textContent = interp.introspection_question;
+      interpretationText!.innerHTML = '<p class="placeholder">Focus on the question below.</p>';
+      
+      showState('content');
+      responseInput!.focus();
+      
+    } catch (err) {
+      showError(err instanceof Error ? err.message : 'Failed to load interpretation');
+    }
+  }
+  
+  async function submitResponse(e: Event) {
+    e.preventDefault();
+    
+    const response = responseInput!.value.trim();
+    if (!response) return;
+    
+    submitBtn!.textContent = 'Submitting...';
+    submitBtn!.setAttribute('disabled', 'true');
+    
+    try {
+      const apiResponse = await fetch(
+        `${API_BASE}/sacred-journey/daily/interpretation/${interpretationId}/respond`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ response })
+        }
+      );
+      
+      if (!apiResponse.ok) throw new Error('Failed to submit response');
+      showState('success');
+      
+    } catch (err) {
+      submitBtn!.textContent = 'Submit Response';
+      submitBtn!.removeAttribute('disabled');
+      alert(err instanceof Error ? err.message : 'Failed to submit response');
+    }
+  }
+  
+  responseForm?.addEventListener('submit', submitResponse);
+  loadInterpretation();
+</script>
+
+<style>
+  .respond-page { max-width: 700px; margin: 0 auto; }
+  
+  .loading-state, .success-state, .error-state {
+    display: flex; flex-direction: column; align-items: center;
+    justify-content: center; min-height: 400px; text-align: center;
+  }
+  
+  .spinner {
+    width: 40px; height: 40px; border: 3px solid var(--color-border);
+    border-top-color: var(--color-gold); border-radius: 50%;
+    animation: spin 1s linear infinite; margin-bottom: var(--space-md);
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  
+  .success-icon { font-size: 4rem; color: var(--color-gold); margin-bottom: var(--space-md); }
+  .success-actions { display: flex; gap: var(--space-md); margin-top: var(--space-lg); }
+  
+  .page-header { margin-bottom: var(--space-2xl); }
+  .back-link { display: inline-block; font-size: 0.9rem; color: var(--color-text-muted); margin-bottom: var(--space-md); }
+  .back-link:hover { color: var(--color-gold); }
+  .header-meta { display: flex; align-items: center; gap: var(--space-md); }
+  
+  .domain-badge {
+    font-family: var(--font-display); font-size: 0.85rem; text-transform: uppercase;
+    letter-spacing: 0.1em; padding: var(--space-xs) var(--space-sm);
+    border-radius: 4px; background: var(--color-bg-elevated);
+  }
+  .domain-badge.domain-body { color: var(--color-accent-body); }
+  .domain-badge.domain-mind { color: var(--color-accent-mind); }
+  .domain-badge.domain-heart { color: var(--color-accent-heart); }
+  .domain-badge.domain-spirit { color: var(--color-accent-spirit); }
+  
+  .interpretation-section, .question-section, .response-section { margin-bottom: var(--space-2xl); }
+  
+  h2 {
+    font-size: 1rem; text-transform: uppercase; letter-spacing: 0.15em;
+    color: var(--color-text-muted); margin-bottom: var(--space-md);
+  }
+  
+  .interpretation-text {
+    background: var(--color-bg-elevated); border-radius: var(--card-radius);
+    padding: var(--space-lg); line-height: 1.7;
+  }
+  .placeholder { color: var(--color-text-muted); font-style: italic; margin: 0; }
+  
+  .question {
+    margin: 0; padding: var(--space-lg); background: var(--color-bg-card);
+    border-left: 4px solid var(--color-gold); border-radius: var(--card-radius);
+    font-size: 1.15rem; font-style: italic; line-height: 1.6;
+  }
+  
+  textarea {
+    width: 100%; padding: var(--space-md); font-family: var(--font-body);
+    font-size: 1rem; line-height: 1.6; background: var(--color-bg-card);
+    border: 1px solid var(--color-border); border-radius: var(--card-radius);
+    color: var(--color-text); resize: vertical; min-height: 200px;
+  }
+  textarea:focus { outline: none; border-color: var(--color-gold); }
+  textarea::placeholder { color: var(--color-text-dim); }
+  
+  .form-footer {
+    display: flex; align-items: flex-start; justify-content: space-between;
+    gap: var(--space-lg); margin-top: var(--space-md);
+  }
+  .guidance { font-size: 0.9rem; color: var(--color-text-dim); margin: 0; max-width: 400px; }
+  button:disabled { opacity: 0.6; cursor: not-allowed; }
+</style>

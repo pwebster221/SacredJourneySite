@@ -1,0 +1,355 @@
+---
+/**
+ * Weekly Reading Detail Page
+ * 
+ * Shows full details of a specific week's reading and daily entries
+ */
+import Layout from '../../../layouts/Layout.astro';
+import { sacredJourney } from '../../../lib/sacred-journey';
+
+const { start } = Astro.params;
+
+let weekData = null;
+let error = null;
+
+// Fetch week progress
+try {
+  weekData = await sacredJourney.getWeeklyProgress(start!);
+} catch (e) {
+  error = e instanceof Error ? e.message : 'Failed to load week data';
+}
+
+// Parse date string as local date (avoid timezone issues with UTC interpretation)
+const parseLocalDate = (dateStr: string) => {
+  const [year, month, day] = dateStr.split('-').map(Number);
+  return new Date(year, month - 1, day);
+};
+
+const formatDate = (dateStr: string) => {
+  return parseLocalDate(dateStr).toLocaleDateString('en-US', {
+    weekday: 'long',
+    month: 'long',
+    day: 'numeric',
+  });
+};
+
+const weekDays = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+
+// Get date for a specific day offset from week start
+const getDayDate = (dayIndex: number) => {
+  const baseDate = parseLocalDate(start!);
+  baseDate.setDate(baseDate.getDate() + dayIndex);
+  return baseDate;
+};
+
+const formatDayDate = (date: Date) => {
+  return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+};
+
+const toDateString = (date: Date) => {
+  const y = date.getFullYear();
+  const m = String(date.getMonth() + 1).padStart(2, '0');
+  const d = String(date.getDate()).padStart(2, '0');
+  return `${y}-${m}-${d}`;
+};
+
+// Calculate the next incomplete day's date
+const getNextPracticeDate = () => {
+  if (!weekData || weekData.days_complete >= 7) return null;
+  return toDateString(getDayDate(weekData.days_complete));
+};
+
+const nextPracticeDate = getNextPracticeDate();
+---
+
+<Layout title={`Week of ${start} - Paths of Reverence`}>
+  <div class="week-detail-page">
+    <header class="page-header">
+      <a href="/history" class="back-link">← Back to Archive</a>
+      <h1>Week of {formatDate(start!)}</h1>
+    </header>
+    
+    {error ? (
+      <div class="error-state">
+        <p>{error}</p>
+        <p class="hint">This week may not have a reading yet.</p>
+        <a href="/practice/new-week" class="btn btn-primary">Create New Reading</a>
+      </div>
+    ) : weekData ? (
+      <div class="week-content">
+        <section class="progress-section">
+          <div class="progress-stats">
+            <div class="stat">
+              <span class="stat-value">{weekData.days_complete}/7</span>
+              <span class="stat-label">Days Complete</span>
+            </div>
+            <div class="stat">
+              <span class="stat-value">{weekData.interpretations_complete}</span>
+              <span class="stat-label">Interpretations</span>
+            </div>
+            <div class="stat">
+              <span class={`status-badge status-${weekData.status}`}>
+                {weekData.status}
+              </span>
+            </div>
+          </div>
+          
+          <div class="progress-bar-container">
+            <div class="progress-bar">
+              <div 
+                class="progress-fill" 
+                style={`width: ${(weekData.days_complete / 7) * 100}%`}
+              ></div>
+            </div>
+          </div>
+        </section>
+        
+        <section class="days-section">
+          <h2>Daily Entries</h2>
+          <div class="days-grid">
+            {weekDays.map((day, index) => {
+              const dayDate = getDayDate(index);
+              const dateStr = toDateString(dayDate);
+              const isComplete = index < weekData.days_complete;
+              const isNext = index === weekData.days_complete;
+              
+              return (
+                <div class:list={['day-card', { complete: isComplete, next: isNext }]}>
+                  <span class="day-name">{day}</span>
+                  <span class="day-date">{formatDayDate(dayDate)}</span>
+                  {isComplete ? (
+                    <a href={`/practice/${dateStr}`} class="day-status complete" title="View completed entry">✓</a>
+                  ) : isNext ? (
+                    <a href={`/practice/${dateStr}`} class="btn btn-small">Practice</a>
+                  ) : (
+                    <span class="day-status pending">—</span>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        </section>
+        
+        {weekData.status === 'active' && nextPracticeDate && (
+          <section class="actions-section">
+            <a href={`/practice/${nextPracticeDate}`} class="btn btn-primary">
+              Continue Practice — {weekDays[weekData.days_complete]}
+            </a>
+          </section>
+        )}
+        
+        {weekData.status === 'complete' && (
+          <section class="actions-section">
+            <p class="complete-message">✦ This week's practice is complete ✦</p>
+          </section>
+        )}
+      </div>
+    ) : (
+      <div class="empty-state">
+        <p>No data found for this week.</p>
+      </div>
+    )}
+  </div>
+</Layout>
+
+<style>
+  .week-detail-page {
+    max-width: 800px;
+    margin: 0 auto;
+  }
+  
+  .page-header {
+    margin-bottom: var(--space-2xl);
+  }
+  
+  .back-link {
+    display: inline-block;
+    font-size: 0.9rem;
+    color: var(--color-text-muted);
+    margin-bottom: var(--space-md);
+  }
+  
+  .back-link:hover {
+    color: var(--color-gold);
+  }
+  
+  .progress-section {
+    background: var(--color-bg-elevated);
+    border: 1px solid var(--color-border);
+    border-radius: var(--card-radius);
+    padding: var(--space-xl);
+    margin-bottom: var(--space-2xl);
+  }
+  
+  .progress-stats {
+    display: flex;
+    justify-content: space-around;
+    align-items: center;
+    margin-bottom: var(--space-lg);
+  }
+  
+  .stat {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: var(--space-xs);
+  }
+  
+  .stat-value {
+    font-family: var(--font-display);
+    font-size: 2rem;
+    color: var(--color-gold);
+  }
+  
+  .stat-label {
+    font-size: 0.8rem;
+    color: var(--color-text-dim);
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+  }
+  
+  .status-badge {
+    font-family: var(--font-display);
+    font-size: 0.85rem;
+    padding: var(--space-xs) var(--space-md);
+    border-radius: var(--card-radius);
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+  }
+  
+  .status-badge.status-active {
+    background: rgba(201, 162, 39, 0.2);
+    color: var(--color-gold);
+  }
+  
+  .status-badge.status-complete {
+    background: rgba(124, 152, 133, 0.2);
+    color: var(--color-accent-body);
+  }
+  
+  .progress-bar-container {
+    padding: 0 var(--space-md);
+  }
+  
+  .progress-bar {
+    height: 8px;
+    background: var(--color-bg-card);
+    border-radius: 4px;
+    overflow: hidden;
+  }
+  
+  .progress-fill {
+    height: 100%;
+    background: linear-gradient(90deg, var(--color-gold-dim), var(--color-gold));
+    transition: width 0.3s ease;
+  }
+  
+  .days-section h2 {
+    margin-bottom: var(--space-lg);
+  }
+  
+  .days-grid {
+    display: grid;
+    grid-template-columns: repeat(7, 1fr);
+    gap: var(--space-sm);
+  }
+  
+  .day-card {
+    background: var(--color-bg-card);
+    border: 1px solid var(--color-border);
+    border-radius: var(--card-radius);
+    padding: var(--space-md);
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: var(--space-xs);
+    text-align: center;
+  }
+  
+  .day-card.complete {
+    border-color: var(--color-accent-body);
+  }
+  
+  .day-card.next {
+    border-color: var(--color-gold);
+    box-shadow: 0 0 12px rgba(201, 162, 39, 0.2);
+  }
+  
+  .day-name {
+    font-family: var(--font-display);
+    font-size: 0.75rem;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    color: var(--color-text);
+  }
+  
+  .day-date {
+    font-size: 0.8rem;
+    color: var(--color-text-dim);
+  }
+  
+  .day-status {
+    font-size: 1.2rem;
+    margin-top: var(--space-xs);
+    text-decoration: none;
+  }
+  
+  .day-status.complete {
+    color: var(--color-accent-body);
+  }
+  
+  .day-status.pending {
+    color: var(--color-text-dim);
+  }
+  
+  a.day-status.complete:hover {
+    color: var(--color-gold);
+  }
+  
+  .btn-small {
+    font-size: 0.7rem;
+    padding: var(--space-xs) var(--space-sm);
+    margin-top: var(--space-xs);
+  }
+  
+  .actions-section {
+    text-align: center;
+    margin-top: var(--space-2xl);
+  }
+  
+  .complete-message {
+    color: var(--color-accent-body);
+    font-family: var(--font-display);
+    letter-spacing: 0.1em;
+  }
+  
+  .error-state, .empty-state {
+    text-align: center;
+    padding: var(--space-2xl);
+    background: var(--color-bg-elevated);
+    border: 1px dashed var(--color-border);
+    border-radius: var(--card-radius);
+  }
+  
+  .hint {
+    color: var(--color-text-dim);
+    margin-bottom: var(--space-lg);
+  }
+  
+  @media (max-width: 768px) {
+    .days-grid {
+      grid-template-columns: repeat(4, 1fr);
+    }
+  }
+  
+  @media (max-width: 480px) {
+    .days-grid {
+      grid-template-columns: repeat(2, 1fr);
+    }
+    
+    .progress-stats {
+      flex-direction: column;
+      gap: var(--space-md);
+    }
+  }
+</style>

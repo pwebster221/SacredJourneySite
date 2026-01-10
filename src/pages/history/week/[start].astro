@@ -112,15 +112,25 @@ const nextPracticeDate = getNextPracticeDate();
               const dateStr = toDateString(dayDate);
               const isComplete = index < weekData.days_complete;
               const isNext = index === weekData.days_complete;
-              
+              const isPast = index < weekData.days_complete;
+              const isFuture = index > weekData.days_complete;
+
               return (
                 <div class:list={['day-card', { complete: isComplete, next: isNext }]}>
                   <span class="day-name">{day}</span>
                   <span class="day-date">{formatDayDate(dayDate)}</span>
                   {isComplete ? (
-                    <a href={`/practice/${dateStr}`} class="day-status complete" title="View completed entry">✓</a>
+                    <div class="day-actions">
+                      <a href={`/practice/${dateStr}`} class="day-status complete" title="View completed entry">✓</a>
+                    </div>
                   ) : isNext ? (
-                    <a href={`/practice/${dateStr}`} class="btn btn-small">Practice</a>
+                    <div class="day-actions">
+                      <a href={`/practice/session/${dateStr}`} class="btn btn-small btn-primary">Session</a>
+                    </div>
+                  ) : isFuture ? (
+                    <div class="day-actions">
+                      <a href={`/practice/session/${dateStr}`} class="btn btn-small">Session</a>
+                    </div>
                   ) : (
                     <span class="day-status pending">—</span>
                   )}
@@ -132,8 +142,11 @@ const nextPracticeDate = getNextPracticeDate();
         
         {weekData.status === 'active' && nextPracticeDate && (
           <section class="actions-section">
-            <a href={`/practice/${nextPracticeDate}`} class="btn btn-primary">
-              Continue Practice — {weekDays[weekData.days_complete]}
+            <a href={`/practice/session/${nextPracticeDate}`} class="btn btn-primary">
+              Start Session — {weekDays[weekData.days_complete]}
+            </a>
+            <a href={`/practice/${nextPracticeDate}`} class="btn" style="margin-left: var(--space-md);">
+              View Practice
             </a>
           </section>
         )}
@@ -309,6 +322,14 @@ const nextPracticeDate = getNextPracticeDate();
   .btn-small {
     font-size: 0.7rem;
     padding: var(--space-xs) var(--space-sm);
+    margin-top: var(--space-xs);
+  }
+
+  .day-actions {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-xs);
+    align-items: center;
     margin-top: var(--space-xs);
   }
   

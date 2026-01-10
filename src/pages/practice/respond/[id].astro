@@ -79,7 +79,11 @@ const { id } = Astro.params;
 </Layout>
 
 <script>
-  const API_BASE = 'https://neo4jmiddleware.robin-alligator.ts.net';
+  // Use internal Tailscale URL for local dev, Funnel URL for production
+  const isLocalDev = window.location.hostname === 'localhost' || window.location.hostname.startsWith('100.');
+  const API_BASE = isLocalDev 
+    ? 'http://100.117.79.64:8000' 
+    : 'https://neo4jmiddleware.robin-alligator.ts.net';
   
   const page = document.querySelector('.respond-page') as HTMLElement;
   const interpretationId = page?.dataset.interpretationId;

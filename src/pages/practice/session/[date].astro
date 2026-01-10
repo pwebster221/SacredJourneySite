@@ -1,0 +1,1041 @@
+---
+/**
+ * Sacred Journey Chat Session Page
+ *
+ * Conversational exploration of daily tarot practice with Claude.
+ * Pre-loads context and allows natural dialogue that weaves all four domains.
+ */
+import Layout from '../../../layouts/Layout.astro';
+import { sacredJourney } from '../../../lib/sacred-journey';
+
+const { date } = Astro.params;
+
+// Validate date format
+const dateRegex = /^\d{4}-\d{2}-\d{2}$/;
+if (!date || !dateRegex.test(date)) {
+  return Astro.redirect('/');
+}
+
+// Session context - we'll build this from available data
+let sessionContext: {
+  entry_id: string | null;
+  planetary_ruler: string;
+  domain_cards: Record<string, string>;
+  yesterday_synthesis: string | null;
+  user_context_prompt: string | null;
+} = {
+  entry_id: null,
+  planetary_ruler: '',
+  domain_cards: {},
+  yesterday_synthesis: null,
+  user_context_prompt: null
+};
+
+let error: string | null = null;
+let needsEntry = false;
+let weekExists = false;
+let weeklyReading: any = null;
+
+// Calculate week start for this date
+const dateObj = new Date(date + 'T12:00:00');
+const dayOfWeekNum = dateObj.getDay();
+const weekStartDate = new Date(dateObj);
+weekStartDate.setDate(dateObj.getDate() - dayOfWeekNum);
+const weekStartStr = weekStartDate.toISOString().split('T')[0];
+const dayName = dateObj.toLocaleDateString('en-US', { weekday: 'long' });
+
+// Try to get daily interpretations first (most reliable for cards)
+try {
+  const interps = await sacredJourney.getDailyInterpretations(date);
+  if (interps) {
+    sessionContext.entry_id = interps.entry_id;
+    sessionContext.planetary_ruler = interps.planetary_card || '';
+    sessionContext.domain_cards = interps.domain_cards || {};
+  }
+} catch (e) {
+  const msg = e instanceof Error ? e.message : '';
+  if (msg.includes('404') || msg.includes('No daily entry')) {
+    // Check if we can create the entry (week exists)
+    try {
+      weeklyReading = await sacredJourney.getWeeklyProgress(weekStartStr);
+      weekExists = true;
+      needsEntry = true;
+    } catch {
+      // No weekly reading for this date
+      needsEntry = true;
+      weekExists = false;
+    }
+  } else {
+    error = msg || 'Failed to load daily data';
+  }
+}
+
+// If we have an entry but missing cards, try the context endpoint
+if (sessionContext.entry_id && Object.keys(sessionContext.domain_cards).length === 0) {
+  try {
+    const ctx = await sacredJourney.getInterpretationContext(date);
+    if (ctx) {
+      sessionContext.domain_cards = ctx.domain_cards || sessionContext.domain_cards;
+      sessionContext.planetary_ruler = ctx.planetary_ruler || sessionContext.planetary_ruler;
+      sessionContext.yesterday_synthesis = ctx.yesterday_synthesis;
+      sessionContext.user_context_prompt = ctx.user_context_prompt;
+    }
+  } catch {
+    // Ignore - we'll work with what we have
+  }
+}
+
+// If missing cards or planetary ruler, try current spread (works for current week)
+if (Object.keys(sessionContext.domain_cards).length === 0 || !sessionContext.planetary_ruler) {
+  try {
+    const spread = await sacredJourney.getCurrentSpread();
+    if (spread) {
+      // Get domain cards if missing
+      if (Object.keys(sessionContext.domain_cards).length === 0) {
+        sessionContext.domain_cards = spread.domain_cards || {};
+      }
+      // Get planetary ruler if missing
+      if (!sessionContext.planetary_ruler && spread.planetary_cards) {
+        sessionContext.planetary_ruler = spread.planetary_cards[dayName] || '';
+      }
+      // If we have today's entry info, grab entry_id
+      if (!sessionContext.entry_id && spread.today?.entry_id) {
+        sessionContext.entry_id = spread.today.entry_id;
+      }
+    }
+  } catch {
+    // Ignore
+  }
+}
+
+// Alias for template compatibility
+// Show session interface if we have domain cards OR an entry_id
+const hasData = sessionContext.entry_id || Object.keys(sessionContext.domain_cards).length > 0;
+const context = hasData ? sessionContext : null;
+
+// Parse date for display
+const parseLocalDate = (dateStr: string) => {
+  const [year, month, day] = dateStr.split('-').map(Number);
+  return new Date(year, month - 1, day);
+};
+
+const formatDate = (dateStr: string) => {
+  return parseLocalDate(dateStr).toLocaleDateString('en-US', {
+    weekday: 'long',
+    month: 'long',
+    day: 'numeric',
+  });
+};
+
+const dayOfWeek = parseLocalDate(date).toLocaleDateString('en-US', { weekday: 'long' });
+---
+
+<Layout title={`Practice Session - ${formatDate(date)} - Paths of Reverence`}>
+  <div class="session-page" data-date={date}>
+    <header class="page-header">
+      <a href={`/practice/${date}`} class="back-link">← Back to {dayOfWeek}</a>
+      <h1>Sacred Journey Session</h1>
+      <p class="date-display">{formatDate(date)}</p>
+    </header>
+
+    {error ? (
+      <div class="error-state">
+        <h2>Unable to Load</h2>
+        <p>{error}</p>
+        <a href="/history" class="btn">Back to Archive</a>
+      </div>
+    ) : needsEntry && !weekExists ? (
+      <div class="needs-entry-state">
+        <h2>No Weekly Reading</h2>
+        <p>This date doesn't have an associated weekly reading yet.</p>
+        <div class="needs-entry-actions">
+          <a href="/practice/new-week" class="btn btn-primary">Create New Week</a>
+          <a href="/history" class="btn">View Archive</a>
+        </div>
+      </div>
+    ) : needsEntry && weekExists ? (
+      <div class="needs-entry-state" id="auto-create-state" data-date={date}>
+        <div class="spinner"></div>
+        <h2>Preparing Session...</h2>
+        <p>Creating daily entry for {formatDate(date)}</p>
+      </div>
+    ) : (
+      <div class="session-container">
+        <!-- Cards Display -->
+        <aside class="cards-panel">
+          <div class="planetary-card-display">
+            <span class="card-label">Planetary Ruler</span>
+            <span class="card-name" id="planetary-card">{context?.planetary_ruler || 'Loading...'}</span>
+          </div>
+
+          <div class="domain-cards-display">
+            <h3>Domain Cards</h3>
+            <div class="domain-list">
+              {['Mind', 'Heart', 'Body', 'Spirit'].map((domain) => (
+                <div class={`domain-item domain-${domain.toLowerCase()}`}>
+                  <span class="domain-label">{domain}</span>
+                  <span class="domain-card">{context?.domain_cards?.[domain] || '—'}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          {context?.yesterday_synthesis && (
+            <div class="yesterday-panel">
+              <h3>Yesterday's Synthesis</h3>
+              <p class="yesterday-text">{context.yesterday_synthesis}</p>
+            </div>
+          )}
+
+          <!-- Debug info - can remove later -->
+          <details class="debug-panel">
+            <summary>Debug Info</summary>
+            <pre>{JSON.stringify({
+              has_context: !!context,
+              entry_id: sessionContext.entry_id || 'none (will create on save)',
+              planetary_ruler: sessionContext.planetary_ruler || 'missing',
+              domain_cards: sessionContext.domain_cards,
+              yesterday_synthesis: sessionContext.yesterday_synthesis ? 'present' : 'none',
+              day_name: dayName
+            }, null, 2)}</pre>
+          </details>
+        </aside>
+
+        <!-- Chat Interface -->
+        <main class="chat-panel">
+          <div class="chat-messages" id="chat-messages">
+            <div class="message assistant">
+              <div class="message-content">
+                <p class="loading-message" id="initial-loading">
+                  <span class="typing-indicator">
+                    <span></span><span></span><span></span>
+                  </span>
+                  Preparing your session...
+                </p>
+              </div>
+            </div>
+          </div>
+
+          <div class="chat-input-area">
+            <form id="chat-form" class="chat-form">
+              <textarea
+                id="chat-input"
+                name="message"
+                placeholder="Share your reflections..."
+                rows="3"
+                disabled
+              ></textarea>
+              <div class="input-actions">
+                <button type="submit" class="btn btn-primary" id="send-btn" disabled>
+                  Send
+                </button>
+              </div>
+            </form>
+          </div>
+
+          <div class="session-actions">
+            <button type="button" class="btn" id="complete-btn" disabled>
+              Complete Session
+            </button>
+          </div>
+        </main>
+      </div>
+    )}
+
+    <!-- Completion Modal -->
+    <div class="modal-overlay" id="complete-modal" style="display: none;">
+      <div class="modal-content">
+        <h2>Complete Session</h2>
+        <p>Ready to save this session? Claude will extract the key insights from your conversation.</p>
+
+        <div class="modal-loading" id="modal-loading" style="display: none;">
+          <div class="spinner"></div>
+          <p>Extracting session insights...</p>
+        </div>
+
+        <div class="modal-actions" id="modal-actions">
+          <button type="button" class="btn" id="modal-cancel">Continue Conversation</button>
+          <button type="button" class="btn btn-primary" id="modal-confirm">Save & Complete</button>
+        </div>
+      </div>
+    </div>
+  </div>
+</Layout>
+
+<script define:vars={{
+  date,
+  contextData: sessionContext,
+  userContextPrompt: sessionContext.user_context_prompt || null,
+  needsEntryCreation: needsEntry && weekExists
+}}>
+  // Handle auto-create entry if needed
+  const autoCreateState = document.getElementById('auto-create-state');
+  if (autoCreateState && needsEntryCreation) {
+    const entryDate = autoCreateState.dataset.date;
+    const isLocalDev = window.location.hostname === 'localhost' || window.location.hostname.startsWith('100.');
+    const API_BASE = isLocalDev
+      ? 'http://100.117.79.64:8000'
+      : 'https://neo4jmiddleware.robin-alligator.ts.net';
+
+    (async function createEntryAndReload() {
+      try {
+        const response = await fetch(`${API_BASE}/sacred-journey/daily/begin`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ entry_date: entryDate }),
+        });
+
+        if (response.ok || response.status === 409) {
+          window.location.reload();
+        } else {
+          const data = await response.json().catch(() => ({}));
+          throw new Error(data.detail || `Failed: ${response.status}`);
+        }
+      } catch (err) {
+        autoCreateState.innerHTML = `
+          <h2>Could Not Create Entry</h2>
+          <p>${err.message}</p>
+          <a href="/practice/${entryDate}" class="btn btn-primary">Go to Practice Page</a>
+        `;
+      }
+    })();
+  }
+
+  // State
+  let messages = [];
+  let isStreaming = false;
+  let sessionStarted = false;
+
+  // Elements
+  const chatMessages = document.getElementById('chat-messages');
+  const chatForm = document.getElementById('chat-form');
+  const chatInput = document.getElementById('chat-input');
+  const sendBtn = document.getElementById('send-btn');
+  const completeBtn = document.getElementById('complete-btn');
+  const completeModal = document.getElementById('complete-modal');
+  const modalLoading = document.getElementById('modal-loading');
+  const modalActions = document.getElementById('modal-actions');
+  const modalCancel = document.getElementById('modal-cancel');
+  const modalConfirm = document.getElementById('modal-confirm');
+  const initialLoading = document.getElementById('initial-loading');
+
+  // Build context for API
+  const chatContext = {
+    date: date,
+    planetary_card: contextData?.planetary_ruler || '',
+    domain_cards: contextData?.domain_cards || {},
+    yesterday_synthesis: contextData?.yesterday_synthesis || null,
+    user_context: userContextPrompt || null
+  };
+
+  // Initialize session
+  async function initSession() {
+    // Send an empty message to get Claude's opening
+    await sendMessage('', true);
+    sessionStarted = true;
+    chatInput.disabled = false;
+    sendBtn.disabled = false;
+    completeBtn.disabled = false;
+    chatInput.focus();
+  }
+
+  // Add message to UI
+  function addMessageToUI(role, content, isStreaming = false) {
+    const messageDiv = document.createElement('div');
+    messageDiv.className = `message ${role}${isStreaming ? ' streaming' : ''}`;
+    messageDiv.innerHTML = `<div class="message-content">${formatContent(content)}</div>`;
+    chatMessages.appendChild(messageDiv);
+    chatMessages.scrollTop = chatMessages.scrollHeight;
+    return messageDiv;
+  }
+
+  // Format content with markdown-like parsing
+  function formatContent(content) {
+    if (!content) return '';
+
+    // Escape HTML
+    let formatted = content
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;');
+
+    // Bold
+    formatted = formatted.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
+
+    // Italic
+    formatted = formatted.replace(/\*(.+?)\*/g, '<em>$1</em>');
+
+    // Line breaks
+    formatted = formatted.replace(/\n/g, '<br>');
+
+    return `<p>${formatted}</p>`;
+  }
+
+  // Update streaming message
+  function updateStreamingMessage(messageEl, content) {
+    const contentEl = messageEl.querySelector('.message-content');
+    if (contentEl) {
+      contentEl.innerHTML = formatContent(content);
+      chatMessages.scrollTop = chatMessages.scrollHeight;
+    }
+  }
+
+  // Send message to API
+  async function sendMessage(userMessage, isInitial = false) {
+    if (isStreaming) return;
+    isStreaming = true;
+
+    // Remove initial loading if present
+    if (initialLoading) {
+      initialLoading.closest('.message')?.remove();
+    }
+
+    // Add user message to UI (unless it's the initial empty message)
+    if (userMessage && !isInitial) {
+      messages.push({ role: 'user', content: userMessage });
+      addMessageToUI('user', userMessage);
+    }
+
+    // Prepare messages for API
+    const apiMessages = isInitial
+      ? [{ role: 'user', content: 'Please begin today\'s Sacred Journey session. Orient me to the cards and start our exploration.' }]
+      : messages;
+
+    // Create streaming response placeholder
+    const assistantMessage = addMessageToUI('assistant', '', true);
+    let fullResponse = '';
+
+    try {
+      const response = await fetch('/api/chat', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          messages: apiMessages,
+          context: chatContext
+        })
+      });
+
+      if (!response.ok) {
+        throw new Error(`Chat request failed: ${response.status}`);
+      }
+
+      const reader = response.body?.getReader();
+      if (!reader) throw new Error('No response stream');
+
+      const decoder = new TextDecoder();
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+
+        const chunk = decoder.decode(value, { stream: true });
+        const lines = chunk.split('\n');
+
+        for (const line of lines) {
+          if (line.startsWith('data: ')) {
+            const data = line.slice(6);
+            if (data === '[DONE]') continue;
+
+            try {
+              const parsed = JSON.parse(data);
+              if (parsed.text) {
+                fullResponse += parsed.text;
+                updateStreamingMessage(assistantMessage, fullResponse);
+              }
+            } catch {
+              // Skip malformed JSON
+            }
+          }
+        }
+      }
+
+      // Finalize message
+      assistantMessage.classList.remove('streaming');
+      messages.push({ role: 'assistant', content: fullResponse });
+
+      // Check if session-complete block was output
+      if (fullResponse.includes('```session-complete')) {
+        handleSessionComplete(fullResponse);
+      }
+
+    } catch (error) {
+      console.error('Chat error:', error);
+      updateStreamingMessage(assistantMessage, 'An error occurred. Please try again.');
+      assistantMessage.classList.remove('streaming');
+      assistantMessage.classList.add('error');
+    } finally {
+      isStreaming = false;
+    }
+  }
+
+  // Handle form submission
+  chatForm?.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const message = chatInput.value.trim();
+    if (!message || isStreaming) return;
+
+    chatInput.value = '';
+    chatInput.style.height = 'auto';
+    await sendMessage(message);
+  });
+
+  // Auto-resize textarea
+  chatInput?.addEventListener('input', () => {
+    chatInput.style.height = 'auto';
+    chatInput.style.height = Math.min(chatInput.scrollHeight, 150) + 'px';
+  });
+
+  // Complete button
+  completeBtn?.addEventListener('click', () => {
+    completeModal.style.display = 'flex';
+  });
+
+  // Modal cancel
+  modalCancel?.addEventListener('click', () => {
+    completeModal.style.display = 'none';
+  });
+
+  // Modal confirm - ask Claude to complete session
+  modalConfirm?.addEventListener('click', async () => {
+    modalActions.style.display = 'none';
+    modalLoading.style.display = 'flex';
+
+    // Send completion request
+    await sendMessage('Please complete this session now. Output the session-complete block with all the extracted insights.');
+
+    completeModal.style.display = 'none';
+    modalActions.style.display = 'flex';
+    modalLoading.style.display = 'none';
+  });
+
+  // Handle session-complete JSON extraction
+  function handleSessionComplete(response) {
+    const match = response.match(/```session-complete\s*([\s\S]*?)\s*```/);
+    if (!match) return;
+
+    try {
+      const sessionData = JSON.parse(match[1]);
+      saveSession(sessionData);
+    } catch (error) {
+      console.error('Failed to parse session data:', error);
+      addMessageToUI('assistant', 'I had trouble formatting the session data. Let me try again.');
+    }
+  }
+
+  // Save session to API
+  async function saveSession(sessionData) {
+    const API_BASE = 'https://neo4jmiddleware.robin-alligator.ts.net';
+
+    try {
+      // Build bulk complete request
+      const request = {
+        entry_date: date,
+        interpretations: {
+          Mind: {
+            prepared_interpretation: sessionData.mind?.interpretation || '',
+            introspection_question: sessionData.introspection_question || '',
+            response: '', // Could be filled from conversation
+            domain_eval: sessionData.mind?.theme || ''
+          },
+          Heart: {
+            prepared_interpretation: sessionData.heart?.interpretation || '',
+            introspection_question: sessionData.introspection_question || '',
+            response: '',
+            domain_eval: sessionData.heart?.theme || ''
+          },
+          Body: {
+            prepared_interpretation: sessionData.body?.interpretation || '',
+            introspection_question: sessionData.introspection_question || '',
+            response: '',
+            domain_eval: sessionData.body?.theme || ''
+          },
+          Spirit: {
+            prepared_interpretation: sessionData.spirit?.interpretation || '',
+            introspection_question: sessionData.introspection_question || '',
+            response: '',
+            domain_eval: sessionData.spirit?.theme || ''
+          }
+        },
+        auto_synthesize: false,
+        synthesis_content: sessionData.synthesis || ''
+      };
+
+      const response = await fetch(`${API_BASE}/sacred-journey/daily/bulk-complete`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(request)
+      });
+
+      if (!response.ok) {
+        throw new Error(`Failed to save session: ${response.status}`);
+      }
+
+      // Show success and redirect
+      addMessageToUI('assistant', '✦ Session saved successfully! Redirecting to your practice page...');
+
+      setTimeout(() => {
+        window.location.href = `/practice/${date}`;
+      }, 2000);
+
+    } catch (error) {
+      console.error('Save error:', error);
+      addMessageToUI('assistant', `Failed to save session: ${error.message}. You can try the Complete Session button again.`);
+    }
+  }
+
+  // Keyboard shortcuts
+  chatInput?.addEventListener('keydown', (e) => {
+    // Cmd/Ctrl + Enter to send
+    if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') {
+      e.preventDefault();
+      chatForm?.dispatchEvent(new Event('submit'));
+    }
+  });
+
+  // Start session on load
+  initSession();
+</script>
+
+<style>
+  .session-page {
+    height: calc(100vh - 200px);
+    display: flex;
+    flex-direction: column;
+  }
+
+  .page-header {
+    margin-bottom: var(--space-lg);
+  }
+
+  .back-link {
+    display: inline-block;
+    font-size: 0.9rem;
+    color: var(--color-text-muted);
+    margin-bottom: var(--space-sm);
+  }
+
+  .back-link:hover {
+    color: var(--color-gold);
+  }
+
+  .date-display {
+    color: var(--color-text-muted);
+    margin: 0;
+  }
+
+  .session-container {
+    display: grid;
+    grid-template-columns: 280px 1fr;
+    gap: var(--space-xl);
+    flex: 1;
+    min-height: 0;
+  }
+
+  /* Cards Panel */
+  .cards-panel {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-lg);
+    overflow-y: auto;
+  }
+
+  .planetary-card-display {
+    background: var(--color-bg-elevated);
+    border: 1px solid var(--color-gold);
+    border-radius: var(--card-radius);
+    padding: var(--space-lg);
+    text-align: center;
+  }
+
+  .card-label {
+    display: block;
+    font-size: 0.75rem;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    color: var(--color-text-dim);
+    margin-bottom: var(--space-xs);
+  }
+
+  .card-name {
+    font-family: var(--font-display);
+    font-size: 1.25rem;
+    color: var(--color-gold);
+  }
+
+  .domain-cards-display {
+    background: var(--color-bg-card);
+    border: 1px solid var(--color-border);
+    border-radius: var(--card-radius);
+    padding: var(--space-md);
+  }
+
+  .domain-cards-display h3 {
+    font-size: 0.85rem;
+    margin-bottom: var(--space-md);
+    color: var(--color-text-muted);
+  }
+
+  .domain-list {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-sm);
+  }
+
+  .domain-item {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: var(--space-xs) var(--space-sm);
+    border-radius: 4px;
+    background: var(--color-bg);
+  }
+
+  .domain-label {
+    font-family: var(--font-display);
+    font-size: 0.75rem;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+  }
+
+  .domain-item.domain-mind .domain-label { color: var(--color-accent-mind); }
+  .domain-item.domain-heart .domain-label { color: var(--color-accent-heart); }
+  .domain-item.domain-body .domain-label { color: var(--color-accent-body); }
+  .domain-item.domain-spirit .domain-label { color: var(--color-accent-spirit); }
+
+  .domain-card {
+    font-size: 0.85rem;
+    color: var(--color-text-muted);
+  }
+
+  .yesterday-panel {
+    background: var(--color-bg-card);
+    border: 1px solid var(--color-border);
+    border-radius: var(--card-radius);
+    padding: var(--space-md);
+  }
+
+  .yesterday-panel h3 {
+    font-size: 0.85rem;
+    margin-bottom: var(--space-sm);
+    color: var(--color-text-muted);
+  }
+
+  .yesterday-text {
+    font-size: 0.85rem;
+    color: var(--color-text-dim);
+    line-height: 1.5;
+    max-height: 150px;
+    overflow-y: auto;
+    margin: 0;
+  }
+
+  /* Chat Panel */
+  .chat-panel {
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+    background: var(--color-bg-card);
+    border: 1px solid var(--color-border);
+    border-radius: var(--card-radius);
+    overflow: hidden;
+  }
+
+  .chat-messages {
+    flex: 1;
+    overflow-y: auto;
+    padding: var(--space-lg);
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-md);
+  }
+
+  .message {
+    max-width: 85%;
+    animation: fadeIn 0.2s ease;
+  }
+
+  @keyframes fadeIn {
+    from { opacity: 0; transform: translateY(10px); }
+    to { opacity: 1; transform: translateY(0); }
+  }
+
+  .message.user {
+    align-self: flex-end;
+  }
+
+  .message.assistant {
+    align-self: flex-start;
+  }
+
+  .message-content {
+    padding: var(--space-md) var(--space-lg);
+    border-radius: var(--card-radius);
+    line-height: 1.6;
+  }
+
+  .message.user .message-content {
+    background: var(--color-gold);
+    color: var(--color-bg);
+  }
+
+  .message.assistant .message-content {
+    background: var(--color-bg-elevated);
+    border: 1px solid var(--color-border);
+  }
+
+  .message.assistant .message-content p {
+    margin: 0 0 var(--space-sm);
+  }
+
+  .message.assistant .message-content p:last-child {
+    margin-bottom: 0;
+  }
+
+  .message.streaming .message-content::after {
+    content: '▊';
+    animation: blink 0.7s infinite;
+    color: var(--color-gold);
+  }
+
+  @keyframes blink {
+    50% { opacity: 0; }
+  }
+
+  .message.error .message-content {
+    border-color: #c98b8b;
+    color: #c98b8b;
+  }
+
+  .typing-indicator {
+    display: inline-flex;
+    gap: 4px;
+    align-items: center;
+  }
+
+  .typing-indicator span {
+    width: 6px;
+    height: 6px;
+    background: var(--color-gold);
+    border-radius: 50%;
+    animation: typing 1.4s infinite;
+  }
+
+  .typing-indicator span:nth-child(2) { animation-delay: 0.2s; }
+  .typing-indicator span:nth-child(3) { animation-delay: 0.4s; }
+
+  @keyframes typing {
+    0%, 60%, 100% { transform: translateY(0); opacity: 0.4; }
+    30% { transform: translateY(-4px); opacity: 1; }
+  }
+
+  .loading-message {
+    color: var(--color-text-muted);
+    margin: 0;
+    display: flex;
+    align-items: center;
+    gap: var(--space-sm);
+  }
+
+  /* Chat Input */
+  .chat-input-area {
+    padding: var(--space-md) var(--space-lg);
+    border-top: 1px solid var(--color-border);
+    background: var(--color-bg-elevated);
+  }
+
+  .chat-form {
+    display: flex;
+    gap: var(--space-md);
+    align-items: flex-end;
+  }
+
+  .chat-form textarea {
+    flex: 1;
+    padding: var(--space-sm) var(--space-md);
+    font-family: var(--font-body);
+    font-size: 1rem;
+    line-height: 1.5;
+    background: var(--color-bg);
+    border: 1px solid var(--color-border);
+    border-radius: var(--card-radius);
+    color: var(--color-text);
+    resize: none;
+    min-height: 44px;
+    max-height: 150px;
+  }
+
+  .chat-form textarea:focus {
+    outline: none;
+    border-color: var(--color-gold);
+  }
+
+  .chat-form textarea:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+  }
+
+  .chat-form textarea::placeholder {
+    color: var(--color-text-dim);
+  }
+
+  .input-actions {
+    display: flex;
+    gap: var(--space-sm);
+  }
+
+  /* Session Actions */
+  .session-actions {
+    padding: var(--space-sm) var(--space-lg);
+    border-top: 1px solid var(--color-border);
+    display: flex;
+    justify-content: flex-end;
+  }
+
+  /* Modal */
+  .modal-overlay {
+    position: fixed;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.8);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 100;
+  }
+
+  .modal-content {
+    background: var(--color-bg-card);
+    border: 1px solid var(--color-border);
+    border-radius: var(--card-radius);
+    padding: var(--space-xl);
+    max-width: 450px;
+    text-align: center;
+  }
+
+  .modal-content h2 {
+    margin-bottom: var(--space-md);
+  }
+
+  .modal-content p {
+    color: var(--color-text-muted);
+    margin-bottom: var(--space-lg);
+  }
+
+  .modal-actions {
+    display: flex;
+    gap: var(--space-md);
+    justify-content: center;
+  }
+
+  .modal-loading {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: var(--space-md);
+  }
+
+  .spinner {
+    width: 32px;
+    height: 32px;
+    border: 3px solid var(--color-border);
+    border-top-color: var(--color-gold);
+    border-radius: 50%;
+    animation: spin 1s linear infinite;
+  }
+
+  @keyframes spin {
+    to { transform: rotate(360deg); }
+  }
+
+  /* States */
+  .error-state,
+  .needs-entry-state {
+    text-align: center;
+    padding: var(--space-2xl);
+    background: var(--color-bg-elevated);
+    border: 1px dashed var(--color-border);
+    border-radius: var(--card-radius);
+  }
+
+  .needs-entry-state .spinner {
+    width: 40px;
+    height: 40px;
+    border: 3px solid var(--color-border);
+    border-top-color: var(--color-gold);
+    border-radius: 50%;
+    animation: spin 1s linear infinite;
+    margin: 0 auto var(--space-lg);
+  }
+
+  .needs-entry-actions {
+    display: flex;
+    gap: var(--space-md);
+    justify-content: center;
+    margin-top: var(--space-lg);
+  }
+
+  .debug-panel {
+    margin-top: var(--space-md);
+    background: var(--color-bg);
+    border: 1px solid var(--color-border);
+    border-radius: var(--card-radius);
+    padding: var(--space-sm);
+    font-size: 0.75rem;
+  }
+
+  .debug-panel summary {
+    cursor: pointer;
+    color: var(--color-text-dim);
+  }
+
+  .debug-panel pre {
+    margin: var(--space-sm) 0 0;
+    padding: var(--space-sm);
+    background: var(--color-bg-deep);
+    border-radius: 4px;
+    overflow-x: auto;
+    color: var(--color-text-muted);
+  }
+
+  /* Responsive */
+  @media (max-width: 900px) {
+    .session-container {
+      grid-template-columns: 1fr;
+    }
+
+    .cards-panel {
+      flex-direction: row;
+      flex-wrap: wrap;
+      gap: var(--space-md);
+    }
+
+    .planetary-card-display,
+    .domain-cards-display,
+    .yesterday-panel {
+      flex: 1;
+      min-width: 200px;
+    }
+
+    .yesterday-panel {
+      flex-basis: 100%;
+    }
+  }
+
+  @media (max-width: 600px) {
+    .session-page {
+      height: auto;
+      min-height: calc(100vh - 200px);
+    }
+
+    .cards-panel {
+      flex-direction: column;
+    }
+
+    .chat-form {
+      flex-direction: column;
+    }
+
+    .input-actions {
+      align-self: flex-end;
+    }
+  }
+</style>

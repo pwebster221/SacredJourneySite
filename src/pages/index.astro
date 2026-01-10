@@ -44,8 +44,9 @@ const formatDate = (dateStr: string) => {
 const weekDays = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
 const domains = ['Body', 'Mind', 'Heart', 'Spirit'];
 
-// Get today's day name
+// Get today's day name and date
 const today = new Date().toLocaleDateString('en-US', { weekday: 'long' });
+const todayDate = new Date().toISOString().split('T')[0];
 ---
 
 <Layout title="Today's Spread - Paths of Reverence">
@@ -167,8 +168,11 @@ const today = new Date().toLocaleDateString('en-US', { weekday: 'long' });
             {/* Action buttons */}
             {currentSpread.today.status !== 'complete' && (
               <div class="practice-actions">
-                <a href={`/practice/${currentSpread.today.date}`} class="btn btn-primary">
-                  Continue Practice
+                <a href={`/practice/session/${currentSpread.today.date}`} class="btn btn-primary">
+                  Start Chat Session
+                </a>
+                <a href={`/practice/${currentSpread.today.date}`} class="btn">
+                  View Practice
                 </a>
               </div>
             )}
@@ -177,9 +181,10 @@ const today = new Date().toLocaleDateString('en-US', { weekday: 'long' });
           <section class="begin-today">
             <h2>Begin Today's Practice</h2>
             <p>Start your daily entry to receive today's interpretations and introspection questions.</p>
-            <form method="POST" action="/api/daily/begin">
-              <button type="submit" class="btn btn-primary">Begin Daily Entry</button>
-            </form>
+            <div class="begin-actions">
+              <a href={`/practice/session/${todayDate}`} class="btn btn-primary">Start Chat Session</a>
+              <a href={`/practice/${todayDate}`} class="btn">View Practice Page</a>
+            </div>
           </section>
         )}
       </>
@@ -434,6 +439,12 @@ const today = new Date().toLocaleDateString('en-US', { weekday: 'long' });
   .begin-today p {
     color: var(--color-text-muted);
     margin-bottom: var(--space-lg);
+  }
+
+  .begin-actions {
+    display: flex;
+    gap: var(--space-md);
+    justify-content: center;
   }
   
   /* Error/empty states */

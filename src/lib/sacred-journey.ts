@@ -5,6 +5,8 @@
  * Used by Astro pages and API routes for mutations (responses, new readings, etc.)
  */
 
+// Server-side and client-side both use the Funnel URL
+// The internal Tailscale URL returns 'Access denied' for some endpoints
 const API_BASE = import.meta.env.PUBLIC_API_BASE || 'https://neo4jmiddleware.robin-alligator.ts.net';
 
 // =============================================================================
@@ -121,6 +123,69 @@ export interface PendingInterpretation {
   created_at: string;
 }
 
+// Bulk completion types for conversational workflow
+export interface BulkDomainInterpretation {
+  prepared_interpretation: string;
+  introspection_question: string;
+  response: string;
+  domain_eval: string;
+}
+
+export interface BulkCompleteDailyRequest {
+  entry_date: string;
+  interpretations: {
+    Mind: BulkDomainInterpretation;
+    Heart: BulkDomainInterpretation;
+    Body: BulkDomainInterpretation;
+    Spirit: BulkDomainInterpretation;
+  };
+  auto_synthesize?: boolean;
+  synthesis_content?: string;
+}
+
+export interface DailyContext {
+  entry_id: string | null;
+  planetary_ruler: string;
+  yesterday_synthesis: string | null;
+  lastweek_synthesis: string | null;
+  transits: Record<string, any>[];
+  domain_cards: Record<string, string>;
+  user_context: UserContextBlock | null;
+  user_context_prompt: string | null;
+}
+
+export interface EnrichedCard {
+  name: string;
+  summary: {
+    name: string;
+    arcana: 'Major' | 'Minor' | 'Majestic';
+    number?: number;
+    suit?: string;
+    domain?: string;
+    labels: string[];
+  };
+  correspondences: {
+    dominant_sign?: { name: string; element?: string; modality?: string };
+    ruling_body?: { name: string; symbol?: string; day?: string };
+    element?: { name: string; symbol?: string };
+    hebrew_letter?: { name: string; letter?: string; meaning?: string };
+    tree_path?: { number?: number; name?: string; connects?: string[] };
+    enneagram?: { type: number; name?: string };
+    suit?: { name: string; element?: string };
+    number?: { value: number; meaning?: string };
+  };
+}
+
+export interface DailyInterpretationsResponse {
+  entry_id: string;
+  date: string;
+  planetary_card: string;
+  interpretations: CurrentInterpretation[];
+  planetary_card_detail: EnrichedCard | null;
+  domain_cards: Record<string, string>;
+  domain_cards_detail: Record<string, EnrichedCard> | null;
+}
+
 // =============================================================================
 // API Client
 // =============================================================================
@@ -174,6 +239,13 @@ class SacredJourneyClient {
     return response.json();
   }
 
+  async getDailyInterpretations(entryDate: string): Promise<DailyInterpretationsResponse | null> {
+    const response = await fetch(`${this.baseUrl}/sacred-journey/daily/${entryDate}/interpretations`);
+    if (response.status === 404) return null; // No entry for this date
+    if (!response.ok) throw new Error(`Failed to get daily interpretations: ${response.status}`);
+    return response.json();
+  }
+
   async addTransits(entryDate: string, transits: Record<string, any>[]) {
     const response = await fetch(`${this.baseUrl}/sacred-journey/daily/${entryDate}/transits`, {
       method: 'POST',
@@ -191,6 +263,30 @@ class SacredJourneyClient {
       body: JSON.stringify({ synthesis_content: synthesisContent }),
     });
     if (!response.ok) throw new Error(`Failed to create daily synthesis: ${response.status}`);
+    return response.json();
+  }
+
+  // Conversational workflow methods
+  async getDailyContext(entryDate: string, userId?: string): Promise<DailyContext> {
+    const params = new URLSearchParams();
+    if (userId) params.set('user_id', userId);
+    const queryString = params.toString();
+    const url = `${this.baseUrl}/sacred-journey/daily/${entryDate}/context${queryString ? `?${queryString}` : ''}`;
+    const response = await fetch(url);
+    if (!response.ok) throw new Error(`Failed to get daily context: ${response.status}`);
+    return response.json();
+  }
+
+  async bulkCompleteDaily(request: BulkCompleteDailyRequest) {
+    const response = await fetch(`${this.baseUrl}/sacred-journey/daily/bulk-complete`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(request),
+    });
+    if (!response.ok) {
+      const error = await response.json().catch(() => ({}));
+      throw new Error(error.detail || `Failed to bulk complete daily: ${response.status}`);
+    }
     return response.json();
   }
 

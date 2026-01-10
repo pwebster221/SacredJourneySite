@@ -19,13 +19,32 @@ if (!date || !dateRegex.test(date)) {
 
 let context = null;
 let error = null;
+let weeklyReading = null;
+let canBeginEntry = false;
 
 // Try to get interpretation context for this date (works for any week)
 try {
   context = await sacredJourney.getInterpretationContext(date);
 } catch (e) {
   const msg = e instanceof Error ? e.message : '';
-  if (!msg.includes('404')) {
+  // 404 means no entry yet - check if date is within a weekly reading
+  if (msg.includes('404') || msg.includes('No daily entry')) {
+    // Calculate the Sunday that starts this date's week
+    const dateObj = new Date(date + 'T12:00:00');
+    const dayOfWeek = dateObj.getDay(); // 0 = Sunday
+    const weekStart = new Date(dateObj);
+    weekStart.setDate(dateObj.getDate() - dayOfWeek);
+    const weekStartStr = weekStart.toISOString().split('T')[0];
+    
+    // Check if a weekly reading exists for this week
+    try {
+      weeklyReading = await sacredJourney.getWeeklyProgress(weekStartStr);
+      canBeginEntry = true; // Week exists, can begin entry
+    } catch (weekErr) {
+      // No weekly reading exists for this date
+      canBeginEntry = false;
+    }
+  } else {
     error = msg || 'Failed to load interpretation context';
   }
 }
@@ -46,6 +65,16 @@ const formatDate = (dateStr: string) => {
 
 // Check if entry exists (context has entry_id means entry was created)
 const entryExists = context && context.entry_id;
+
+// Get the planetary card for this date from the weekly reading if available
+const getDayPlanetaryCard = () => {
+  if (!weeklyReading) return null;
+  const dateObj = new Date(date + 'T12:00:00');
+  const dayName = dateObj.toLocaleDateString('en-US', { weekday: 'long' });
+  // WeeklyReading doesn't include planetary_cards in progress endpoint
+  // We'd need to fetch the full reading, but for now just show the day
+  return null;
+};
 ---
 
 <Layout title={`Practice - ${formatDate(date)} - Paths of Reverence`}>
@@ -64,16 +93,6 @@ const entryExists = context && context.entry_id;
         <p>{error}</p>
         <a href="/history" class="btn">Back to Archive</a>
       </div>
-    ) : !context ? (
-      <!-- No context at all - date has no associated weekly reading -->
-      <div class="no-entry-state">
-        <h2>No Reading Found</h2>
-        <p>This date doesn't have an associated weekly reading.</p>
-        <div class="action-links">
-          <a href="/history" class="btn">View Archive</a>
-          <a href="/practice/new-week" class="btn btn-primary">Begin New Week</a>
-        </div>
-      </div>
     ) : entryExists ? (
       <!-- Entry exists - show interpretations (loaded client-side) -->
       <div class="entry-content" id="entry-content">
@@ -82,10 +101,10 @@ const entryExists = context && context.entry_id;
           <span>Loading interpretations...</span>
         </div>
       </div>
-    ) : (
-      <!-- Context exists but no entry yet - show preview and begin button -->
+    ) : (context || canBeginEntry) ? (
+      <!-- Context exists OR week exists - show preview and begin button -->
       <div class="begin-entry-state">
-        {Object.keys(context.domain_cards || {}).length > 0 && (
+        {context && Object.keys(context.domain_cards || {}).length > 0 && (
           <section class="cards-preview">
             <h2>Domain Cards for This Day</h2>
             <div class="domain-cards">
@@ -99,16 +118,37 @@ const entryExists = context && context.entry_id;
           </section>
         )}
         
-        {context.yesterday_synthesis && (
+        {context?.yesterday_synthesis && (
           <section class="context-section">
             <h2>Yesterday's Synthesis</h2>
             <blockquote class="yesterday-synthesis">{context.yesterday_synthesis}</blockquote>
           </section>
         )}
         
+        {weeklyReading && (
+          <section class="week-info">
+            <p class="week-progress">Week Progress: {weeklyReading.days_complete}/7 days complete</p>
+          </section>
+        )}
+        
         <div class="begin-prompt">
           <p>Ready to begin this day's practice?</p>
           <button class="btn btn-primary" id="begin-entry-btn">Begin Daily Entry</button>
+        </div>
+
+        <div class="session-prompt" style="margin-top: var(--space-lg); text-align: center;">
+          <p class="hint">Or start a conversational exploration:</p>
+          <a href={`/practice/session/${date}`} class="btn">Open Chat Session</a>
+        </div>
+      </div>
+    ) : (
+      <!-- No context at all - date has no associated weekly reading -->
+      <div class="no-entry-state">
+        <h2>No Reading Found</h2>
+        <p>This date doesn't have an associated weekly reading.</p>
+        <div class="action-links">
+          <a href="/history" class="btn">View Archive</a>
+          <a href="/practice/new-week" class="btn btn-primary">Begin New Week</a>
         </div>
       </div>
     )}
@@ -121,7 +161,11 @@ const entryExists = context && context.entry_id;
 </Layout>
 
 <script>
-  const API_BASE = 'https://neo4jmiddleware.robin-alligator.ts.net';
+  // Use internal Tailscale URL for local dev, Funnel URL for production
+  const isLocalDev = window.location.hostname === 'localhost' || window.location.hostname.startsWith('100.');
+  const API_BASE = isLocalDev 
+    ? 'http://100.117.79.64:8000' 
+    : 'https://neo4jmiddleware.robin-alligator.ts.net';
   
   const page = document.querySelector('.daily-practice-page') as HTMLElement;
   const date = page?.dataset.date;
@@ -137,6 +181,8 @@ const entryExists = context && context.entry_id;
   }
 
   async function loadInterpretations() {
+    console.log('[Sacred Journey] Loading interpretations for date:', date);
+    
     try {
       // First try to get from current spread (works if this is today's entry)
       let interpretations = null;
@@ -145,10 +191,14 @@ const entryExists = context && context.entry_id;
       let synthesis = null;
 
       try {
+        console.log('[Sacred Journey] Fetching current spread...');
         const spreadRes = await fetch(`${API_BASE}/sacred-journey/current-spread`);
+        console.log('[Sacred Journey] Current spread response:', spreadRes.status);
         if (spreadRes.ok) {
           const spread = await spreadRes.json();
+          console.log('[Sacred Journey] Current spread data:', spread);
           if (spread.today?.date === date) {
+            console.log('[Sacred Journey] Found today in current spread');
             interpretations = spread.today.interpretations;
             domainCards = spread.today.domain_cards;
             planetaryCard = spread.today.planetary_card;
@@ -156,18 +206,23 @@ const entryExists = context && context.entry_id;
           }
         }
       } catch (e) {
+        console.log('[Sacred Journey] Current spread error:', e);
         // Current spread not available, try pending interpretations
       }
 
       // If not in current spread, fetch pending interpretations for this date
       if (!interpretations) {
+        console.log('[Sacred Journey] Fetching pending interpretations...');
         const pendingRes = await fetch(`${API_BASE}/sacred-journey/interpretation/pending`);
+        console.log('[Sacred Journey] Pending response:', pendingRes.status);
         if (pendingRes.ok) {
           const pendingData = await pendingRes.json();
+          console.log('[Sacred Journey] Pending data:', pendingData);
           // Filter to just this date
           const dateInterps = (pendingData.pending || []).filter(
             (i: any) => i.date === date
           );
+          console.log('[Sacred Journey] Filtered for date:', dateInterps);
           
           if (dateInterps.length > 0) {
             interpretations = dateInterps.map((i: any) => ({
@@ -180,17 +235,61 @@ const entryExists = context && context.entry_id;
         }
         
         // Get domain cards from context
+        console.log('[Sacred Journey] Fetching context...');
         const contextRes = await fetch(`${API_BASE}/sacred-journey/daily/${date}/context`);
+        console.log('[Sacred Journey] Context response:', contextRes.status);
         if (contextRes.ok) {
           const contextData = await contextRes.json();
+          console.log('[Sacred Journey] Context data:', contextData);
           domainCards = contextData.domain_cards;
           planetaryCard = contextData.planetary_ruler;
         }
+        
+        // Try to get synthesis from history if we don't have it yet
+        if (!synthesis) {
+          console.log('[Sacred Journey] Fetching history for synthesis...');
+          const historyRes = await fetch(`${API_BASE}/sacred-journey/history?limit=30&include_entries=true`);
+          if (historyRes.ok) {
+            const historyData = await historyRes.json();
+            console.log('[Sacred Journey] History data received, entries:', historyData.recent_entries?.length);
+            // Find the entry matching this date
+            const matchingEntry = (historyData.recent_entries || []).find(
+              (e: any) => e.date === date
+            );
+            if (matchingEntry) {
+              console.log('[Sacred Journey] Found matching entry:', matchingEntry);
+              synthesis = matchingEntry.synthesis;
+              planetaryCard = planetaryCard || matchingEntry.planetary_card;
+            }
+          }
+        }
       }
+      
+      console.log('[Sacred Journey] Final state:', { interpretations, domainCards, planetaryCard, synthesis });
 
       // Render the content
       if (interpretations && interpretations.length > 0) {
-        renderEntry(planetaryCard, domainCards, interpretations, synthesis);
+        // Check if any are actionable (ready status with questions)
+        const hasReady = interpretations.some((i: any) => i.status === 'ready' && i.introspection_question);
+        const allPrepared = interpretations.every((i: any) => i.status === 'prepared');
+        const allComplete = interpretations.every((i: any) => i.status === 'complete');
+        
+        if (allComplete && synthesis) {
+          // Truly complete - has synthesis and all interpretations done
+          renderCompletedEntry(planetaryCard, domainCards, synthesis);
+        } else if (allPrepared) {
+          // All still in prepared state - need AI generation
+          renderPreparedState(planetaryCard, domainCards, interpretations);
+        } else {
+          renderEntry(planetaryCard, domainCards, interpretations, synthesis);
+        }
+      } else if (synthesis) {
+        // Entry has synthesis - it's complete
+        renderCompletedEntry(planetaryCard, domainCards, synthesis);
+      } else if (planetaryCard) {
+        // Entry exists (has planetary card) but no interpretations found via API
+        // This means interpretations are in 'prepared' status (not yet ready)
+        renderPreparedState(planetaryCard, domainCards, []);
       } else {
         // Entry exists but no interpretations yet - show message
         entryContent!.innerHTML = `
@@ -212,6 +311,84 @@ const entryExists = context && context.entry_id;
         </div>
       `;
     }
+  }
+
+  function renderCompletedEntry(planetaryCard: string | null, domainCards: Record<string, string> | null, synthesis: string | null) {
+    const domains = ['Body', 'Mind', 'Heart', 'Spirit'];
+    let html = '';
+    
+    // Cards section
+    if (planetaryCard) {
+      html += `
+        <section class="cards-section">
+          <div class="planetary-focus">
+            <span class="label">Planetary Card</span>
+            <span class="card-name">${planetaryCard}</span>
+          </div>
+        </section>
+      `;
+    }
+    
+    if (domainCards && Object.keys(domainCards).length > 0) {
+      html += '<section class="cards-section"><div class="domain-cards">';
+      for (const domain of domains) {
+        if (domainCards[domain]) {
+          html += `
+            <div class="domain-card domain-${domain.toLowerCase()}">
+              <span class="domain-label">${domain}</span>
+              <span class="card-name">${domainCards[domain]}</span>
+            </div>
+          `;
+        }
+      }
+      html += '</div></section>';
+    }
+    
+    // Completed interpretations indicator
+    html += `
+      <section class="interpretations-section">
+        <h2>Interpretations</h2>
+        <div class="completed-badge">
+          <span class="checkmark">✓</span>
+          <span>All 4 domain interpretations complete</span>
+        </div>
+      </section>
+    `;
+    
+    // Synthesis section
+    if (synthesis) {
+      html += `
+        <section class="synthesis-section">
+          <h2>Daily Synthesis</h2>
+          <div class="synthesis-content">${synthesis}</div>
+        </section>
+      `;
+    }
+    
+    // Calculate next day's date
+    const currentDate = new Date(date + 'T12:00:00'); // noon to avoid timezone issues
+    const nextDate = new Date(currentDate);
+    nextDate.setDate(nextDate.getDate() + 1);
+    const nextDateStr = nextDate.toISOString().split('T')[0];
+    const nextDayName = nextDate.toLocaleDateString('en-US', { weekday: 'long' });
+
+    // Add navigation
+    html += `
+      <section class="day-navigation">
+        <div class="nav-status">
+          <span class="status-complete">✦ Day Complete ✦</span>
+        </div>
+        <div class="nav-actions">
+          <a href="/history" class="btn">Back to Archive</a>
+          <a href="/practice/session/${nextDateStr}" class="btn btn-primary">Continue to ${nextDayName} →</a>
+        </div>
+        <div class="nav-secondary">
+          <a href="/practice/session/${date}" class="revisit-link">Revisit this day's session</a>
+        </div>
+      </section>
+    `;
+    
+    entryContent!.innerHTML = html;
   }
 
   function renderEntry(planetaryCard: string | null, domainCards: Record<string, string> | null, interpretations: any[], synthesis: string | null) {
@@ -292,6 +469,73 @@ const entryExists = context && context.entry_id;
         </section>
       `;
     }
+    
+    entryContent!.innerHTML = html;
+  }
+
+  function renderPreparedState(planetaryCard: string | null, domainCards: Record<string, string> | null, interpretations: any[]) {
+    const domains = ['Body', 'Mind', 'Heart', 'Spirit'];
+    let html = '';
+    
+    // Cards section
+    if (planetaryCard) {
+      html += `
+        <section class="cards-section">
+          <div class="planetary-focus">
+            <span class="label">Planetary Card</span>
+            <span class="card-name">${planetaryCard}</span>
+          </div>
+        </section>
+      `;
+    }
+    
+    if (domainCards && Object.keys(domainCards).length > 0) {
+      html += '<section class="cards-section"><div class="domain-cards">';
+      for (const domain of domains) {
+        if (domainCards[domain]) {
+          html += `
+            <div class="domain-card domain-${domain.toLowerCase()}">
+              <span class="domain-label">${domain}</span>
+              <span class="card-name">${domainCards[domain]}</span>
+            </div>
+          `;
+        }
+      }
+      html += '</div></section>';
+    }
+    
+    // Interpretations awaiting preparation
+    html += `
+      <section class="interpretations-section">
+        <h2>Interpretations</h2>
+        <div class="prepared-state">
+          <div class="prepared-icon">⏳</div>
+          <h3>Awaiting Preparation</h3>
+          <p>The four domain interpretations have been created and need introspection questions.</p>
+          <p class="hint">Use a Claude conversation with the Sacred Journey prompt to generate interpretations, then prepare them via the API.</p>
+        </div>
+        
+        <div class="interpretations-grid prepared-grid">
+          ${domains.map((domain: string) => `
+            <div class="interpretation-card domain-${domain.toLowerCase()} status-prepared">
+              <div class="interp-header">
+                <span class="domain-name">${domain}</span>
+                <span class="status-badge status-prepared">needs prep</span>
+              </div>
+              <div class="interp-content">
+                <p class="awaiting">No introspection question yet</p>
+              </div>
+            </div>
+          `).join('')}
+        </div>
+        
+        <div class="prepare-actions">
+          <a href="/history" class="btn">Back to Archive</a>
+          <a href="/practice/session/${date}" class="btn btn-primary">Start Chat Session</a>
+          <a href="/practice/prepare/${date}" class="btn">Manual Preparation</a>
+        </div>
+      </section>
+    `;
     
     entryContent!.innerHTML = html;
   }
@@ -538,6 +782,71 @@ const entryExists = context && context.entry_id;
   
   .checkmark { font-size: 1.2rem; }
   
+  .completed-badge {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: var(--space-md);
+    padding: var(--space-lg);
+    background: rgba(124, 152, 133, 0.1);
+    border: 1px solid var(--color-accent-body);
+    border-radius: var(--card-radius);
+    color: var(--color-accent-body);
+  }
+  
+  .completed-badge .checkmark {
+    font-size: 1.5rem;
+  }
+  
+  .synthesis-content {
+    padding: var(--space-lg);
+    background: var(--color-bg-elevated);
+    border-left: 4px solid var(--color-gold);
+    border-radius: var(--card-radius);
+    color: var(--color-text-muted);
+    line-height: 1.8;
+    white-space: pre-wrap;
+  }
+  
+  /* Day navigation */
+  .day-navigation {
+    margin-top: var(--space-2xl);
+    padding: var(--space-xl);
+    background: var(--color-bg-elevated);
+    border: 1px solid var(--color-border);
+    border-radius: var(--card-radius);
+    text-align: center;
+  }
+  
+  .nav-status {
+    margin-bottom: var(--space-lg);
+  }
+  
+  .nav-status .status-complete {
+    font-family: var(--font-display);
+    color: var(--color-accent-body);
+    letter-spacing: 0.1em;
+  }
+  
+  .nav-actions {
+    display: flex;
+    justify-content: center;
+    gap: var(--space-md);
+  }
+
+  .nav-secondary {
+    margin-top: var(--space-md);
+  }
+
+  .revisit-link {
+    font-size: 0.85rem;
+    color: var(--color-text-dim);
+  }
+
+  .revisit-link:hover {
+    color: var(--color-gold);
+  }
+  
   /* Synthesis */
   .synthesis-section {
     margin-top: var(--space-2xl);
@@ -573,6 +882,16 @@ const entryExists = context && context.entry_id;
     padding: var(--space-lg) 0;
   }
   
+  .week-info {
+    text-align: center;
+    margin-bottom: var(--space-lg);
+  }
+  
+  .week-progress {
+    color: var(--color-text-muted);
+    font-size: 0.9rem;
+  }
+  
   .begin-prompt {
     text-align: center;
     margin-top: var(--space-2xl);
@@ -590,6 +909,47 @@ const entryExists = context && context.entry_id;
   .hint {
     color: var(--color-text-dim);
     font-size: 0.9rem;
+  }
+  
+  /* Prepared state */
+  .prepared-state {
+    text-align: center;
+    padding: var(--space-xl);
+    background: var(--color-bg-card);
+    border: 1px dashed var(--color-gold-dim);
+    border-radius: var(--card-radius);
+    margin-bottom: var(--space-lg);
+  }
+  
+  .prepared-icon {
+    font-size: 3rem;
+    margin-bottom: var(--space-md);
+  }
+  
+  .prepared-state h3 {
+    color: var(--color-gold);
+    margin-bottom: var(--space-sm);
+  }
+  
+  .prepared-state p {
+    color: var(--color-text-muted);
+    margin-bottom: var(--space-xs);
+  }
+  
+  .prepared-grid {
+    margin-bottom: var(--space-lg);
+  }
+  
+  .prepare-actions {
+    display: flex;
+    justify-content: center;
+    gap: var(--space-md);
+    margin-top: var(--space-lg);
+  }
+  
+  .status-badge.status-prepared {
+    background: rgba(201, 162, 39, 0.1);
+    color: var(--color-gold-dim);
   }
   
   /* Loading overlay */

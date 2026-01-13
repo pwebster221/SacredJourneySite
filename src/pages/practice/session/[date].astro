@@ -44,13 +44,32 @@ weekStartDate.setDate(dateObj.getDate() - dayOfWeekNum);
 const weekStartStr = weekStartDate.toISOString().split('T')[0];
 const dayName = dateObj.toLocaleDateString('en-US', { weekday: 'long' });
 
+// Helper to normalize domain card keys (API might return lowercase)
+function normalizeDomainCards(cards: Record<string, string> | null | undefined): Record<string, string> {
+  if (!cards || Object.keys(cards).length === 0) return {};
+  const normalized: Record<string, string> = {};
+  const domainMap: Record<string, string> = {
+    'mind': 'Mind', 'Mind': 'Mind',
+    'heart': 'Heart', 'Heart': 'Heart',
+    'body': 'Body', 'Body': 'Body',
+    'spirit': 'Spirit', 'Spirit': 'Spirit'
+  };
+  for (const [key, value] of Object.entries(cards)) {
+    const normalizedKey = domainMap[key] || key;
+    if (value) normalized[normalizedKey] = value;
+  }
+  return normalized;
+}
+
 // Try to get daily interpretations first (most reliable for cards)
 try {
   const interps = await sacredJourney.getDailyInterpretations(date);
+  console.log('[Debug] getDailyInterpretations response:', JSON.stringify(interps, null, 2));
   if (interps) {
     sessionContext.entry_id = interps.entry_id;
     sessionContext.planetary_ruler = interps.planetary_card || '';
-    sessionContext.domain_cards = interps.domain_cards || {};
+    sessionContext.domain_cards = normalizeDomainCards(interps.domain_cards);
+    console.log('[Debug] After normalization, domain_cards:', sessionContext.domain_cards);
   }
 } catch (e) {
   const msg = e instanceof Error ? e.message : '';
@@ -74,37 +93,78 @@ try {
 if (sessionContext.entry_id && Object.keys(sessionContext.domain_cards).length === 0) {
   try {
     const ctx = await sacredJourney.getInterpretationContext(date);
+    console.log('[Debug] getInterpretationContext response:', JSON.stringify(ctx, null, 2));
     if (ctx) {
-      sessionContext.domain_cards = ctx.domain_cards || sessionContext.domain_cards;
+      const normalizedCtxCards = normalizeDomainCards(ctx.domain_cards);
+      if (Object.keys(normalizedCtxCards).length > 0) {
+        sessionContext.domain_cards = normalizedCtxCards;
+      }
       sessionContext.planetary_ruler = ctx.planetary_ruler || sessionContext.planetary_ruler;
       sessionContext.yesterday_synthesis = ctx.yesterday_synthesis;
       sessionContext.user_context_prompt = ctx.user_context_prompt;
     }
-  } catch {
+  } catch (ctxErr) {
+    console.warn('[Debug] getInterpretationContext failed:', ctxErr);
     // Ignore - we'll work with what we have
   }
 }
 
-// If missing cards or planetary ruler, try current spread (works for current week)
+// If missing cards or planetary ruler, try to get the weekly reading for this date's week
+if (Object.keys(sessionContext.domain_cards).length === 0 || !sessionContext.planetary_ruler) {
+  console.log(`[Debug] Missing cards/ruler. Trying getWeeklyReading for week: ${weekStartStr}`);
+
+  try {
+    // First, try to get the weekly reading directly for the archived week
+    const weeklyReading = await sacredJourney.getWeeklyReading(weekStartStr);
+    console.log('[Debug] getWeeklyReading result:', weeklyReading ? 'Found' : 'Null');
+
+    if (weeklyReading) {
+      console.log('[Debug] Weekly reading data:', JSON.stringify(weeklyReading, null, 2));
+      if (Object.keys(sessionContext.domain_cards).length === 0 && weeklyReading.domain_cards) {
+        sessionContext.domain_cards = normalizeDomainCards(weeklyReading.domain_cards);
+        console.log('[Debug] Set domain_cards from weekly reading:', sessionContext.domain_cards);
+      }
+      if (!sessionContext.planetary_ruler && weeklyReading.planetary_cards) {
+        sessionContext.planetary_ruler = weeklyReading.planetary_cards[dayName] || '';
+        console.log('[Debug] Set planetary_ruler from weekly reading:', sessionContext.planetary_ruler);
+      }
+    }
+  } catch (e) {
+    console.warn('[Debug] getWeeklyReading failed:', e);
+  }
+}
+
+// Final fallback: try current spread only if the date is in current week
 if (Object.keys(sessionContext.domain_cards).length === 0 || !sessionContext.planetary_ruler) {
   try {
     const spread = await sacredJourney.getCurrentSpread();
+    console.log('[Debug] getCurrentSpread result:', spread ? 'Found' : 'Null');
+
     if (spread) {
-      // Get domain cards if missing
-      if (Object.keys(sessionContext.domain_cards).length === 0) {
-        sessionContext.domain_cards = spread.domain_cards || {};
-      }
-      // Get planetary ruler if missing
-      if (!sessionContext.planetary_ruler && spread.planetary_cards) {
-        sessionContext.planetary_ruler = spread.planetary_cards[dayName] || '';
-      }
-      // If we have today's entry info, grab entry_id
-      if (!sessionContext.entry_id && spread.today?.entry_id) {
-        sessionContext.entry_id = spread.today.entry_id;
+      // Check if this spread belongs to the requested date's week
+      const spreadWeekStart = spread.week_start.split('T')[0];
+      const isCorrectWeek = spreadWeekStart === weekStartStr;
+
+      console.log(`[Debug] Date: ${date}, WeekStart: ${weekStartStr}, SpreadWeek: ${spreadWeekStart}, Match: ${isCorrectWeek}`);
+
+      if (isCorrectWeek) {
+        // Use current spread data
+        console.log('[Debug] Using Current Spread data');
+        if (Object.keys(sessionContext.domain_cards).length === 0) {
+          sessionContext.domain_cards = normalizeDomainCards(spread.domain_cards);
+        }
+        if (!sessionContext.planetary_ruler && spread.planetary_cards) {
+          sessionContext.planetary_ruler = spread.planetary_cards[dayName] || '';
+        }
+        if (!sessionContext.entry_id && spread.today?.entry_id && spread.today.date === date) {
+          sessionContext.entry_id = spread.today.entry_id;
+        }
+      } else {
+        console.log('[Debug] Current spread week mismatch - skipping (archived week needs weekly reading)');
       }
     }
-  } catch {
-    // Ignore
+  } catch (e) {
+    console.error('[Debug] getCurrentSpread failed:', e);
   }
 }
 

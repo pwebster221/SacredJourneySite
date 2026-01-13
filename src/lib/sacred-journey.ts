@@ -94,6 +94,22 @@ export interface CurrentSpread {
   message?: string;
 }
 
+export interface WeeklyReadingDetails {
+  reading_id: string;
+  week_start: string;
+  status: 'active' | 'complete';
+  planetary_cards: Record<string, string>;
+  domain_cards: Record<string, string>;
+  days_complete?: number;
+  entries?: Array<{
+    entry_id: string;
+    date: string;
+    day_of_week: string;
+    planetary_card: string;
+    status: string;
+  }>;
+}
+
 export interface CurrentDailySpread {
   entry_id: string;
   date: string;
@@ -218,6 +234,69 @@ class SacredJourneyClient {
     const response = await fetch(`${this.baseUrl}/sacred-journey/current-spread`);
     if (!response.ok) throw new Error(`Failed to get current spread: ${response.status}`);
     return response.json();
+  }
+
+  async getWeeklyReading(weekStart: string): Promise<WeeklyReadingDetails | null> {
+    // Try the weekly reading endpoint first
+    try {
+      const response = await fetch(`${this.baseUrl}/sacred-journey/weekly/${weekStart}`);
+      console.log(`[API Debug] /sacred-journey/weekly/${weekStart} status:`, response.status);
+      if (response.ok) {
+        const data = await response.json();
+        console.log(`[API Debug] /sacred-journey/weekly/${weekStart} data:`, JSON.stringify(data, null, 2));
+        return data;
+      }
+    } catch (err) {
+      console.log(`[API Debug] /sacred-journey/weekly/${weekStart} error:`, err);
+      // Fall through to alternative approach
+    }
+
+    // Fallback: Try to get from progress endpoint with enhanced details
+    try {
+      const response = await fetch(`${this.baseUrl}/sacred-journey/weekly/${weekStart}/progress`);
+      console.log(`[API Debug] /sacred-journey/weekly/${weekStart}/progress status:`, response.status);
+      if (response.ok) {
+        const progress = await response.json();
+        console.log(`[API Debug] /sacred-journey/weekly/${weekStart}/progress data:`, JSON.stringify(progress, null, 2));
+        // Return whatever we got - let caller decide if it has the cards
+        return progress as WeeklyReadingDetails;
+      }
+    } catch (err) {
+      console.log(`[API Debug] /sacred-journey/weekly/${weekStart}/progress error:`, err);
+    }
+
+    // Third fallback: Try to get from history endpoint and find the matching week
+    try {
+      const response = await fetch(`${this.baseUrl}/sacred-journey/history?limit=50&include_entries=false`);
+      console.log(`[API Debug] /sacred-journey/history status:`, response.status);
+      if (response.ok) {
+        const history = await response.json();
+        const readings = history.readings || [];
+        const matchingReading = readings.find((r: any) => {
+          const readingWeekStart = r.week_start?.split('T')[0];
+          return readingWeekStart === weekStart;
+        });
+        if (matchingReading) {
+          console.log(`[API Debug] Found matching reading in history:`, JSON.stringify(matchingReading, null, 2));
+          // History might include reading_id, so we could try to fetch full details
+          if (matchingReading.reading_id) {
+            // Try to get full reading by ID
+            const readingResponse = await fetch(`${this.baseUrl}/sacred-journey/weekly-reading/${matchingReading.reading_id}`);
+            console.log(`[API Debug] /sacred-journey/weekly-reading/${matchingReading.reading_id} status:`, readingResponse.status);
+            if (readingResponse.ok) {
+              const fullReading = await readingResponse.json();
+              console.log(`[API Debug] Full reading by ID:`, JSON.stringify(fullReading, null, 2));
+              return fullReading as WeeklyReadingDetails;
+            }
+          }
+          return matchingReading as WeeklyReadingDetails;
+        }
+      }
+    } catch (err) {
+      console.log(`[API Debug] History lookup error:`, err);
+    }
+
+    return null;
   }
 
   // Daily Entry Operations

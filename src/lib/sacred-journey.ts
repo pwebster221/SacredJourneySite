@@ -1,438 +1,466 @@
 /**
- * Sacred Journey API Client
- * 
- * Type-safe client for interacting with the Neo4j middleware API.
- * Used by Astro pages and API routes for mutations (responses, new readings, etc.)
+ * Sacred Journey API Client — V2
+ *
+ * Type-safe client for interacting with the V2 Sacred Journey API.
+ * Used by Astro pages and API routes.
  */
 
-// Server-side and client-side both use the Funnel URL
-// The internal Tailscale URL returns 'Access denied' for some endpoints
-const API_BASE = import.meta.env.PUBLIC_API_BASE || 'https://neo4jmiddleware.robin-alligator.ts.net';
+import { API_BASE, V2_PREFIX } from './api-config'
 
-// =============================================================================
-// Type Definitions (matching API schemas)
-// =============================================================================
+// ============================================================
+// V2 Types
+// ============================================================
 
-export interface WeeklyReadingRequest {
-  week_start: string; // ISO date
-  planetary_cards: {
-    Sunday: string;
-    Monday: string;
-    Tuesday: string;
-    Wednesday: string;
-    Thursday: string;
-    Friday: string;
-    Saturday: string;
-  };
-  domain_cards: {
-    Body: string;
-    Mind: string;
-    Heart: string;
-    Spirit: string;
-  };
+export type EntryStatus = 'available' | 'active' | 'integrating' | 'complete'
+export type InterpretationStatus = 'pending' | 'responded' | 'evaluated' | 'complete'
+export type CycleStatus = 'active' | 'complete'
+export type Domain = 'Physical' | 'Emotional' | 'Mental' | 'Spiritual'
+
+export interface ReadingCycleResponse {
+  cycle_id: string
+  created_at: string
+  completed_at: string | null
+  status: CycleStatus
+  message: string
+  planetary_cards_detail: null
+  domain_cards_detail: null
 }
 
-export interface DailyEntryResponse {
-  entry_id: string;
-  date: string;
-  day_of_week: string;
-  planetary_card: string;
-  domains: string[];
-  interpretation_ids: Record<string, string>;
+export interface ActiveCyclesResponse {
+  active_cycles: ReadingCycleResponse[]
+  count: number
 }
 
-export interface InterpretationContext {
-  entry_id: string;
-  planetary_ruler: string;
-  yesterday_synthesis: string | null;
-  lastweek_synthesis: string | null;
-  transits: Record<string, any>[];
-  domain_cards: Record<string, string>;
-  user_context: UserContextBlock | null;
-  user_context_prompt: string | null;
+export interface CycleHistoryItem {
+  cycle_id: string
+  created_at: string
+  completed_at: string | null
+  entries_completed: number
+  has_synthesis: boolean
 }
 
-export interface UserContextBlock {
-  interpreted_chart: InterpretedChart | null;
-  spiritual_identity: string | null;
-  active_intentions: ActiveIntention[];
-  transit_focus: string[];
+export interface CycleHistoryResponse {
+  cycles: CycleHistoryItem[]
+  total: number
+  page: number
+  page_size: number
 }
 
-export interface InterpretedChart {
-  sun_sign: string;
-  moon_sign: string;
-  rising_sign: string;
-  ic_sign: string;
-  ic_themes?: string[];
-  configurations?: ChartConfiguration[];
-  notable_placements?: Record<string, string>;
+export interface EntryProgressSummary {
+  entry_id: string
+  sequence: number
+  planet: string
+  status: EntryStatus
+  started_at: string | null
+  completed_at: string | null
 }
 
-export interface ChartConfiguration {
-  name: string;
-  planets: string[];
-  meaning: string;
+export interface CycleProgressResponse {
+  cycle_id: string
+  status: CycleStatus
+  created_at: string
+  completed_at: string | null
+  entries: EntryProgressSummary[]
+  current_entry: EntryProgressSummary | null
 }
 
-export interface ActiveIntention {
-  intention_id: string;
-  theme: string;
-  question: string;
-  started: string;
-  active: boolean;
+export interface ProgressionEntryResponse {
+  entry_id: string
+  sequence: number
+  planet: string
+  status: EntryStatus
+  cycle_id: string
+  started_at: string | null
+  completed_at: string | null
+  planetary_card: string
+  domain_cards: Record<Domain, string>
+  planetary_card_detail: null
+  domain_cards_detail: null
+  message: string
 }
 
-export interface CurrentSpread {
-  reading_id: string;
-  week_start: string;
-  week_status: 'active' | 'complete';
-  planetary_cards: Record<string, string>;
-  domain_cards: Record<string, string>;
-  today: CurrentDailySpread | null;
-  days_complete: number;
-  message?: string;
+export interface EntrySynthesisResponse {
+  entry_id: string
+  synthesis_id: string
+  status: string
+  created_at: string
+  message: string
 }
 
-export interface WeeklyReadingDetails {
-  reading_id: string;
-  week_start: string;
-  status: 'active' | 'complete';
-  planetary_cards: Record<string, string>;
-  domain_cards: Record<string, string>;
-  days_complete?: number;
-  entries?: Array<{
-    entry_id: string;
-    date: string;
-    day_of_week: string;
-    planetary_card: string;
-    status: string;
-  }>;
+export interface EntryAdvanceResponse {
+  entry_id: string
+  sequence: number
+  planet: string
+  status: EntryStatus
+  completed_at: string | null
+  next_entry: { entry_id: string; sequence: number; planet: string } | null
+  cycle_complete: boolean
+  message: string
 }
 
-export interface CurrentDailySpread {
-  entry_id: string;
-  date: string;
-  day_of_week: string;
-  planetary_card: string;
-  domain_cards: Record<string, string>;
-  interpretations: CurrentInterpretation[];
-  synthesis: string | null;
-  status: 'active' | 'complete';
+export interface IntegrationStatusResponse {
+  entry_id: string
+  sequence: number
+  planet: string
+  status: EntryStatus
+  started_at: string | null
+  notes: { timestamp: string; content: string }[]
+  notes_count: number
+  time_integrating_seconds: number
+  message: string
 }
 
-export interface CurrentInterpretation {
-  interpretation_id: string;
-  domain: string;
-  status: 'prepared' | 'ready' | 'responded' | 'complete';
-  prepared_interpretation?: string;
-  introspection_question?: string;
-  response?: string;
-  domain_eval?: string;
+export interface InterpretationContextResponse {
+  entry_id: string
+  interpretation_id: string
+  domain: Domain
+  sequence: number
+  planet: string
+  planetary_card: string
+  domain_card: string
+  previous_synthesis: string | null
+  same_planet_previous_cycle_synthesis: string | null
+  transits: any[]
+  user_context: any | null
+  status: InterpretationStatus
+  created_at: string
+  message: string
 }
 
-export interface PendingInterpretation {
-  interpretation_id: string;
-  date: string;
-  domain: string;
-  introspection_question: string;
-  created_at: string;
+export interface InterpretationRespondResponse {
+  interpretation_id: string
+  domain: Domain
+  status: InterpretationStatus
+  responded_at: string
+  message: string
 }
 
-// Bulk completion types for conversational workflow
-export interface BulkDomainInterpretation {
-  prepared_interpretation: string;
-  introspection_question: string;
-  response: string;
-  domain_eval: string;
+export interface InterpretationStatusItem {
+  interpretation_id: string
+  domain: Domain
+  status: InterpretationStatus
+  created_at: string | null
+  responded_at: string | null
+  evaluated_at: string | null
+  completed_at: string | null
 }
 
-export interface BulkCompleteDailyRequest {
-  entry_date: string;
-  interpretations: {
-    Mind: BulkDomainInterpretation;
-    Heart: BulkDomainInterpretation;
-    Body: BulkDomainInterpretation;
-    Spirit: BulkDomainInterpretation;
-  };
-  auto_synthesize?: boolean;
-  synthesis_content?: string;
+export interface AllInterpretationsStatusResponse {
+  entry_id: string
+  sequence: number
+  planet: string
+  interpretations: InterpretationStatusItem[]
+  all_complete: boolean
+  completion_count: number
+  message: string
 }
 
-export interface DailyContext {
-  entry_id: string | null;
-  planetary_ruler: string;
-  yesterday_synthesis: string | null;
-  lastweek_synthesis: string | null;
-  transits: Record<string, any>[];
-  domain_cards: Record<string, string>;
-  user_context: UserContextBlock | null;
-  user_context_prompt: string | null;
+export interface EntryContextResponse {
+  entry_id: string
+  sequence: number
+  planet: string
+  cycle_id: string
+  planetary_card: string
+  domain_cards: Record<Domain, string>
+  previous_entry: {
+    entry_id: string
+    sequence: number
+    planet: string
+    synthesis: string | null
+    completed_at: string | null
+  } | null
+  same_planet_previous_cycle: {
+    entry_id: string
+    cycle_id: string
+    sequence: number
+    planet: string
+    synthesis: string | null
+    completed_at: string | null
+  } | null
+  transits: any[]
+  transit_snapshot_id: string | null
+  message: string
 }
 
-export interface EnrichedCard {
-  name: string;
-  summary: {
-    name: string;
-    arcana: 'Major' | 'Minor' | 'Majestic';
-    number?: number;
-    suit?: string;
-    domain?: string;
-    labels: string[];
-  };
-  correspondences: {
-    dominant_sign?: { name: string; element?: string; modality?: string };
-    ruling_body?: { name: string; symbol?: string; day?: string };
-    element?: { name: string; symbol?: string };
-    hebrew_letter?: { name: string; letter?: string; meaning?: string };
-    tree_path?: { number?: number; name?: string; connects?: string[] };
-    enneagram?: { type: number; name?: string };
-    suit?: { name: string; element?: string };
-    number?: { value: number; meaning?: string };
-  };
+export interface UserProfileResponse {
+  user: {
+    user_id: string
+    username: string
+    first_name: string
+    last_name: string
+    email: string
+    created_at: string
+  }
+  active_cycles: {
+    cycle_id: string
+    status: CycleStatus
+    current_sequence: number
+    current_planet: string
+    entries_completed: number
+    started_at: string
+  }[]
+  total_cycles_completed: number
+  total_entries_completed: number
+  journey_start_date: string
+  last_activity_at: string
 }
 
-export interface DailyInterpretationsResponse {
-  entry_id: string;
-  date: string;
-  planetary_card: string;
-  interpretations: CurrentInterpretation[];
-  planetary_card_detail: EnrichedCard | null;
-  domain_cards: Record<string, string>;
-  domain_cards_detail: Record<string, EnrichedCard> | null;
+export interface CycleTimelineResponse {
+  cycle_id: string
+  status: CycleStatus
+  created_at: string
+  completed_at: string | null
+  entries: {
+    entry_id: string
+    sequence: number
+    planet: string
+    status: EntryStatus
+    started_at: string | null
+    completed_at: string | null
+    has_synthesis: boolean
+    interpretations_completed: number
+    integration_notes_count: number
+  }[]
+  total_duration_hours: number
+  entries_completed: number
+  has_cycle_synthesis: boolean
+  planetary_cards: Record<string, string>
+  domain_cards: Record<Domain, string>
 }
 
-// =============================================================================
+export interface UserTimelineResponse {
+  user_id: string
+  items: {
+    item_type: string
+    timestamp: string
+    cycle_id: string | null
+    entry_id: string | null
+    planet: string | null
+    sequence: number | null
+    description: string
+  }[]
+  total: number
+  page: number
+  page_size: number
+  has_more: boolean
+  total_cycles: number
+  total_entries_completed: number
+  date_range_start: string
+  date_range_end: string
+}
+
+// ============================================================
 // API Client
-// =============================================================================
+// ============================================================
 
-class SacredJourneyClient {
-  private baseUrl: string;
+export class SacredJourneyClient {
+  private baseUrl: string
 
-  constructor(baseUrl: string = API_BASE) {
-    this.baseUrl = baseUrl;
+  constructor(baseUrl: string) {
+    this.baseUrl = baseUrl
   }
 
-  // Weekly Reading Operations
-  async createWeeklyReading(request: WeeklyReadingRequest) {
-    const response = await fetch(`${this.baseUrl}/sacred-journey/weekly-reading/create`, {
+  private url(path: string) {
+    return `${this.baseUrl}${V2_PREFIX}${path}`
+  }
+
+  private async throwApiError(response: Response, fallback: string): Promise<never> {
+    const body = await response.json().catch(() => ({})) as any
+    throw new Error(body.detail || fallback)
+  }
+
+  // ── Cycles ──────────────────────────────────────────────────
+
+  async createCycle(payload: {
+    planetary_cards: Record<string, string>
+    domain_cards: Record<string, string>
+    user_id?: string
+  }): Promise<ReadingCycleResponse> {
+    const res = await fetch(this.url('/cycles/create'), {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(request),
-    });
-    if (!response.ok) throw new Error(`Failed to create weekly reading: ${response.status}`);
-    return response.json();
+      body: JSON.stringify(payload)
+    })
+    if (!res.ok) await this.throwApiError(res, 'Failed to create cycle')
+    return res.json()
   }
 
-  async getWeeklyProgress(weekStart: string) {
-    const response = await fetch(`${this.baseUrl}/sacred-journey/weekly/${weekStart}/progress`);
-    if (!response.ok) throw new Error(`Failed to get weekly progress: ${response.status}`);
-    return response.json();
+  async getActiveCycles(): Promise<ActiveCyclesResponse> {
+    const res = await fetch(this.url('/cycles/active'))
+    if (!res.ok) await this.throwApiError(res, 'Failed to fetch active cycles')
+    return res.json()
   }
 
-  async getCurrentSpread(): Promise<CurrentSpread> {
-    const response = await fetch(`${this.baseUrl}/sacred-journey/current-spread`);
-    if (!response.ok) throw new Error(`Failed to get current spread: ${response.status}`);
-    return response.json();
+  async getCycleHistory(page = 1, pageSize = 10): Promise<CycleHistoryResponse> {
+    const res = await fetch(this.url(`/cycles/history?page=${page}&page_size=${pageSize}`))
+    if (!res.ok) await this.throwApiError(res, 'Failed to fetch cycle history')
+    return res.json()
   }
 
-  async getWeeklyReading(weekStart: string): Promise<WeeklyReadingDetails | null> {
-    // Try the weekly reading endpoint first
-    try {
-      const response = await fetch(`${this.baseUrl}/sacred-journey/weekly/${weekStart}`);
-      console.log(`[API Debug] /sacred-journey/weekly/${weekStart} status:`, response.status);
-      if (response.ok) {
-        const data = await response.json();
-        console.log(`[API Debug] /sacred-journey/weekly/${weekStart} data:`, JSON.stringify(data, null, 2));
-        return data;
-      }
-    } catch (err) {
-      console.log(`[API Debug] /sacred-journey/weekly/${weekStart} error:`, err);
-      // Fall through to alternative approach
-    }
-
-    // Fallback: Try to get from progress endpoint with enhanced details
-    try {
-      const response = await fetch(`${this.baseUrl}/sacred-journey/weekly/${weekStart}/progress`);
-      console.log(`[API Debug] /sacred-journey/weekly/${weekStart}/progress status:`, response.status);
-      if (response.ok) {
-        const progress = await response.json();
-        console.log(`[API Debug] /sacred-journey/weekly/${weekStart}/progress data:`, JSON.stringify(progress, null, 2));
-        // Return whatever we got - let caller decide if it has the cards
-        return progress as WeeklyReadingDetails;
-      }
-    } catch (err) {
-      console.log(`[API Debug] /sacred-journey/weekly/${weekStart}/progress error:`, err);
-    }
-
-    // Third fallback: Try to get from history endpoint and find the matching week
-    try {
-      const response = await fetch(`${this.baseUrl}/sacred-journey/history?limit=50&include_entries=false`);
-      console.log(`[API Debug] /sacred-journey/history status:`, response.status);
-      if (response.ok) {
-        const history = await response.json();
-        const readings = history.readings || [];
-        const matchingReading = readings.find((r: any) => {
-          const readingWeekStart = r.week_start?.split('T')[0];
-          return readingWeekStart === weekStart;
-        });
-        if (matchingReading) {
-          console.log(`[API Debug] Found matching reading in history:`, JSON.stringify(matchingReading, null, 2));
-          // History might include reading_id, so we could try to fetch full details
-          if (matchingReading.reading_id) {
-            // Try to get full reading by ID
-            const readingResponse = await fetch(`${this.baseUrl}/sacred-journey/weekly-reading/${matchingReading.reading_id}`);
-            console.log(`[API Debug] /sacred-journey/weekly-reading/${matchingReading.reading_id} status:`, readingResponse.status);
-            if (readingResponse.ok) {
-              const fullReading = await readingResponse.json();
-              console.log(`[API Debug] Full reading by ID:`, JSON.stringify(fullReading, null, 2));
-              return fullReading as WeeklyReadingDetails;
-            }
-          }
-          return matchingReading as WeeklyReadingDetails;
-        }
-      }
-    } catch (err) {
-      console.log(`[API Debug] History lookup error:`, err);
-    }
-
-    return null;
+  async getCycle(cycleId: string): Promise<ReadingCycleResponse> {
+    const res = await fetch(this.url(`/cycles/${cycleId}`))
+    if (!res.ok) await this.throwApiError(res, 'Failed to fetch cycle')
+    return res.json()
   }
 
-  // Daily Entry Operations
-  async beginDailyEntry(entryDate?: string): Promise<DailyEntryResponse> {
-    const response = await fetch(`${this.baseUrl}/sacred-journey/daily/begin`, {
+  async getCycleProgress(cycleId: string): Promise<CycleProgressResponse> {
+    const res = await fetch(this.url(`/cycles/${cycleId}/progress`))
+    if (!res.ok) await this.throwApiError(res, 'Failed to fetch cycle progress')
+    return res.json()
+  }
+
+  async synthesizeCycle(cycleId: string, payload: {
+    synthesis_content: string
+    themes?: string[]
+    insights?: string
+  }): Promise<{ cycle_id: string; synthesis_id: string; created_at: string; message: string }> {
+    const res = await fetch(this.url(`/cycles/${cycleId}/synthesize`), {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ entry_date: entryDate }),
-    });
-    if (!response.ok) throw new Error(`Failed to begin daily entry: ${response.status}`);
-    return response.json();
+      body: JSON.stringify(payload)
+    })
+    if (!res.ok) await this.throwApiError(res, 'Failed to synthesize cycle')
+    return res.json()
   }
 
-  async getInterpretationContext(entryDate: string, userId?: string): Promise<InterpretationContext> {
-    const params = new URLSearchParams();
-    if (userId) params.set('user_id', userId);
-    const response = await fetch(`${this.baseUrl}/sacred-journey/daily/${entryDate}/context?${params}`);
-    if (!response.ok) throw new Error(`Failed to get interpretation context: ${response.status}`);
-    return response.json();
+  async getCycleSynthesis(cycleId: string): Promise<{
+    synthesis_id: string; cycle_id: string; content: string; themes: string[];
+    insights: string; created_at: string
+  }> {
+    const res = await fetch(this.url(`/cycles/${cycleId}/synthesis`))
+    if (!res.ok) await this.throwApiError(res, 'Failed to fetch cycle synthesis')
+    return res.json()
   }
 
-  async getDailyInterpretations(entryDate: string): Promise<DailyInterpretationsResponse | null> {
-    const response = await fetch(`${this.baseUrl}/sacred-journey/daily/${entryDate}/interpretations`);
-    if (response.status === 404) return null; // No entry for this date
-    if (!response.ok) throw new Error(`Failed to get daily interpretations: ${response.status}`);
-    return response.json();
+  // ── Entries ──────────────────────────────────────────────────
+
+  async beginEntry(entryId: string): Promise<ProgressionEntryResponse> {
+    const res = await fetch(this.url(`/entries/${entryId}/begin`), { method: 'POST' })
+    if (!res.ok) await this.throwApiError(res, 'Failed to begin entry')
+    return res.json()
   }
 
-  async addTransits(entryDate: string, transits: Record<string, any>[]) {
-    const response = await fetch(`${this.baseUrl}/sacred-journey/daily/${entryDate}/transits`, {
+  async getEntry(entryId: string): Promise<ProgressionEntryResponse> {
+    const res = await fetch(this.url(`/entries/${entryId}`))
+    if (!res.ok) await this.throwApiError(res, 'Failed to fetch entry')
+    return res.json()
+  }
+
+  async synthesizeEntry(entryId: string, payload: {
+    synthesis_content: string
+    insights?: string
+  }): Promise<EntrySynthesisResponse> {
+    const res = await fetch(this.url(`/entries/${entryId}/synthesize`), {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ transits }),
-    });
-    if (!response.ok) throw new Error(`Failed to add transits: ${response.status}`);
-    return response.json();
+      body: JSON.stringify(payload)
+    })
+    if (!res.ok) await this.throwApiError(res, 'Failed to synthesize entry')
+    return res.json()
   }
 
-  async createDailySynthesis(entryDate: string, synthesisContent?: string) {
-    const response = await fetch(`${this.baseUrl}/sacred-journey/daily/${entryDate}/synthesize`, {
+  async addIntegrationNotes(entryId: string, content: string): Promise<{
+    entry_id: string; notes_count: number; latest_note: { timestamp: string; content: string }; message: string
+  }> {
+    const res = await fetch(this.url(`/entries/${entryId}/integration-notes`), {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ synthesis_content: synthesisContent }),
-    });
-    if (!response.ok) throw new Error(`Failed to create daily synthesis: ${response.status}`);
-    return response.json();
+      body: JSON.stringify({ content, timestamp: new Date().toISOString() })
+    })
+    if (!res.ok) await this.throwApiError(res, 'Failed to add integration notes')
+    return res.json()
   }
 
-  // Conversational workflow methods
-  async getDailyContext(entryDate: string, userId?: string): Promise<DailyContext> {
-    const params = new URLSearchParams();
-    if (userId) params.set('user_id', userId);
-    const queryString = params.toString();
-    const url = `${this.baseUrl}/sacred-journey/daily/${entryDate}/context${queryString ? `?${queryString}` : ''}`;
-    const response = await fetch(url);
-    if (!response.ok) throw new Error(`Failed to get daily context: ${response.status}`);
-    return response.json();
+  async getIntegrationStatus(entryId: string): Promise<IntegrationStatusResponse> {
+    const res = await fetch(this.url(`/entries/${entryId}/integration`))
+    if (!res.ok) await this.throwApiError(res, 'Failed to fetch integration status')
+    return res.json()
   }
 
-  async bulkCompleteDaily(request: BulkCompleteDailyRequest) {
-    const response = await fetch(`${this.baseUrl}/sacred-journey/daily/bulk-complete`, {
+  async advanceEntry(entryId: string): Promise<EntryAdvanceResponse> {
+    const res = await fetch(this.url(`/entries/${entryId}/advance`), { method: 'POST' })
+    if (!res.ok) await this.throwApiError(res, 'Failed to advance entry')
+    return res.json()
+  }
+
+  // ── Interpretations ──────────────────────────────────────────
+
+  async prepareInterpretation(entryId: string, domain: Domain, userId?: string): Promise<InterpretationContextResponse> {
+    const res = await fetch(this.url(`/interpretations/${entryId}/prepare`), {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(request),
-    });
-    if (!response.ok) {
-      const error = await response.json().catch(() => ({}));
-      throw new Error(error.detail || `Failed to bulk complete daily: ${response.status}`);
-    }
-    return response.json();
+      body: JSON.stringify({ domain, user_id: userId })
+    })
+    if (!res.ok) await this.throwApiError(res, 'Failed to prepare interpretation')
+    return res.json()
   }
 
-  // Interpretation Operations
-  async prepareInterpretation(interpretationId: string, preparedInterpretation: string, introspectionQuestion: string) {
-    const response = await fetch(`${this.baseUrl}/sacred-journey/daily/interpretation/${interpretationId}/prepare`, {
-      method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ prepared_interpretation: preparedInterpretation, introspection_question: introspectionQuestion }),
-    });
-    if (!response.ok) throw new Error(`Failed to prepare interpretation: ${response.status}`);
-    return response.json();
-  }
-
-  async respondToInterpretation(interpretationId: string, userResponse: string) {
-    const apiResponse = await fetch(`${this.baseUrl}/sacred-journey/daily/interpretation/${interpretationId}/respond`, {
+  async respondToInterpretation(interpId: string, responseText: string): Promise<InterpretationRespondResponse> {
+    const res = await fetch(this.url(`/interpretations/${interpId}/respond`), {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ response: userResponse }),
-    });
-    if (!apiResponse.ok) throw new Error(`Failed to respond to interpretation: ${apiResponse.status}`);
-    return apiResponse.json();
+      body: JSON.stringify({ response_text: responseText })
+    })
+    if (!res.ok) await this.throwApiError(res, 'Failed to submit response')
+    return res.json()
   }
 
-  async evaluateInterpretation(interpretationId: string, domainEval: string) {
-    const response = await fetch(`${this.baseUrl}/sacred-journey/daily/interpretation/${interpretationId}/evaluate`, {
+  async evaluateInterpretation(interpId: string, evaluationText: string, insights?: string[]): Promise<{
+    interpretation_id: string; domain: Domain; status: InterpretationStatus; evaluated_at: string; message: string
+  }> {
+    const res = await fetch(this.url(`/interpretations/${interpId}/evaluate`), {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ domain_eval: domainEval }),
-    });
-    if (!response.ok) throw new Error(`Failed to evaluate interpretation: ${response.status}`);
-    return response.json();
+      body: JSON.stringify({ evaluation_text: evaluationText, insights: insights ?? [] })
+    })
+    if (!res.ok) await this.throwApiError(res, 'Failed to evaluate interpretation')
+    return res.json()
   }
 
-  async getPendingInterpretations(): Promise<{ pending: PendingInterpretation[] }> {
-    const response = await fetch(`${this.baseUrl}/sacred-journey/interpretation/pending`);
-    if (!response.ok) throw new Error(`Failed to get pending interpretations: ${response.status}`);
-    return response.json();
+  async completeInterpretation(interpId: string): Promise<{
+    interpretation_id: string; domain: Domain; status: InterpretationStatus;
+    completed_at: string; remaining_domains: number; all_complete: boolean; message: string
+  }> {
+    const res = await fetch(this.url(`/interpretations/${interpId}/complete`), { method: 'POST' })
+    if (!res.ok) await this.throwApiError(res, 'Failed to complete interpretation')
+    return res.json()
   }
 
-  // Profile Operations
-  async getUserContextBlock(userId: string) {
-    const response = await fetch(`${this.baseUrl}/sacred-journey/profile/${userId}/context-block`);
-    if (!response.ok) throw new Error(`Failed to get user context block: ${response.status}`);
-    return response.json();
+  async getInterpretationsStatus(entryId: string): Promise<AllInterpretationsStatusResponse> {
+    const res = await fetch(this.url(`/interpretations/${entryId}/status`))
+    if (!res.ok) await this.throwApiError(res, 'Failed to fetch interpretation status')
+    return res.json()
   }
 
-  async getProfileStatistics(userId: string) {
-    const response = await fetch(`${this.baseUrl}/sacred-journey/profile/${userId}`);
-    if (!response.ok) throw new Error(`Failed to get profile statistics: ${response.status}`);
-    return response.json();
+  // ── Context ──────────────────────────────────────────────────
+
+  async getEntryContext(entryId: string): Promise<EntryContextResponse> {
+    const res = await fetch(this.url(`/context/${entryId}`))
+    if (!res.ok) await this.throwApiError(res, 'Failed to fetch entry context')
+    return res.json()
   }
 
-  // History Operations
-  async getHistoryArchive(limit: number = 10, includeEntries: boolean = false) {
-    const params = new URLSearchParams({ limit: limit.toString(), include_entries: includeEntries.toString() });
-    const response = await fetch(`${this.baseUrl}/sacred-journey/history?${params}`);
-    if (!response.ok) throw new Error(`Failed to get history archive: ${response.status}`);
-    return response.json();
+  // ── Profiles ─────────────────────────────────────────────────
+
+  async getUserProfile(userId: string): Promise<UserProfileResponse> {
+    const res = await fetch(this.url(`/profiles/${userId}`))
+    if (!res.ok) await this.throwApiError(res, 'Failed to fetch user profile')
+    return res.json()
   }
 
-  // Health Check
-  async healthCheck() {
-    const response = await fetch(`${this.baseUrl}/health`);
-    return response.ok;
+  // ── History ──────────────────────────────────────────────────
+
+  async getCycleTimeline(cycleId: string): Promise<CycleTimelineResponse> {
+    const res = await fetch(this.url(`/history/cycles/${cycleId}`))
+    if (!res.ok) await this.throwApiError(res, 'Failed to fetch cycle timeline')
+    return res.json()
+  }
+
+  async getUserTimeline(userId: string, page = 1, pageSize = 20): Promise<UserTimelineResponse> {
+    const res = await fetch(this.url(`/history/user/${userId}/reading-timeline?page=${page}&page_size=${pageSize}`))
+    if (!res.ok) await this.throwApiError(res, 'Failed to fetch user timeline')
+    return res.json()
   }
 }
 
-export const sacredJourney = new SacredJourneyClient();
-export { SacredJourneyClient };
+export const sacredJourney = new SacredJourneyClient(API_BASE)

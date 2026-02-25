@@ -2,356 +2,243 @@
 /**
  * Prepare Interpretations Page
  *
- * AI-assisted preparation of interpretations for a daily entry.
- * Generates interpretation text and introspection questions for each domain.
+ * Server-side preparation of interpretation contexts for a progression entry.
+ * In V2, each domain is prepared via POST /interpretations/{entry_id}/prepare
+ * which returns the context needed for AI-assisted interpretation.
+ *
+ * The [date] param now receives an entry_id UUID (V2).
+ * File name kept as [date].astro for route compatibility.
  */
 import Layout from '../../../layouts/Layout.astro';
 import { sacredJourney } from '../../../lib/sacred-journey';
-import type { DailyInterpretationsResponse } from '../../../lib/sacred-journey';
+import type {
+  ProgressionEntryResponse,
+  AllInterpretationsStatusResponse,
+  Domain,
+} from '../../../lib/sacred-journey';
+import { DOMAINS } from '../../../lib/domain-utils';
 
-const { date } = Astro.params;
+const { date: entryId } = Astro.params;
 
-// Validate date format
-const dateRegex = /^\d{4}-\d{2}-\d{2}$/;
-if (!date || !dateRegex.test(date)) {
+// Validate that the param looks like a UUID
+const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+if (!entryId || !uuidRegex.test(entryId)) {
   return Astro.redirect('/');
 }
 
-let data: DailyInterpretationsResponse | null = null;
+// Handle POST — prepare interpretations for one or all domains
+if (Astro.request.method === 'POST') {
+  try {
+    const formData = await Astro.request.formData();
+    const domain = formData.get('domain') as string;
+
+    if (domain === 'all') {
+      // Fetch current status to find pending domains
+      const currentStatus = await sacredJourney.getInterpretationsStatus(entryId);
+      for (const d of DOMAINS) {
+        const existing = currentStatus.interpretations.find(i => i.domain === d);
+        if (!existing || existing.status === 'pending') {
+          await sacredJourney.prepareInterpretation(entryId, d as Domain);
+        }
+      }
+    } else {
+      await sacredJourney.prepareInterpretation(entryId, domain as Domain);
+    }
+  } catch (e) {
+    // Redirect back with error handled below on re-fetch
+    console.error('Prepare error:', e);
+  }
+
+  return Astro.redirect(`/practice/prepare/${entryId}`);
+}
+
+// GET — load entry and interpretation status
+let entry: ProgressionEntryResponse | null = null;
+let interps: AllInterpretationsStatusResponse | null = null;
 let error: string | null = null;
 
 try {
-  data = await sacredJourney.getDailyInterpretations(date);
+  entry = await sacredJourney.getEntry(entryId);
+  interps = await sacredJourney.getInterpretationsStatus(entryId);
 } catch (e) {
-  error = e instanceof Error ? e.message : 'Failed to load interpretations';
+  error = e instanceof Error ? e.message : 'Failed to load entry';
 }
 
-// Parse date string as local date
-const parseLocalDate = (dateStr: string) => {
-  const [year, month, day] = dateStr.split('-').map(Number);
-  return new Date(year, month - 1, day);
-};
+// Derive display values
+const planetName = entry?.planet ?? '';
+const sequence = entry?.sequence ?? 0;
+const planetaryCard = entry?.planetary_card ?? '';
+const domainCards = entry?.domain_cards ?? {};
+const interpretations = interps?.interpretations ?? [];
+const allComplete = interps?.all_complete ?? false;
+const completionCount = interps?.completion_count ?? 0;
 
-const formatDate = (dateStr: string) => {
-  return parseLocalDate(dateStr).toLocaleDateString('en-US', {
-    weekday: 'long',
-    month: 'long',
-    day: 'numeric',
-  });
-};
+// Count domains that still need preparation (pending with no responded/evaluated/complete)
+const pendingDomains = DOMAINS.filter(d => {
+  const existing = interpretations.find(i => i.domain === d);
+  return !existing || existing.status === 'pending';
+});
+const pendingCount = pendingDomains.length;
+const allPrepared = pendingCount === 0;
 
-// Check if all interpretations are already prepared (ready or later status)
-const allReady = data?.interpretations?.every(i => i.status !== 'prepared') ?? false;
-const preparedCount = data?.interpretations?.filter(i => i.status === 'prepared').length ?? 0;
+// Status label for display
+function statusLabel(status: string): string {
+  switch (status) {
+    case 'pending': return 'pending';
+    case 'responded': return 'responded';
+    case 'evaluated': return 'evaluated';
+    case 'complete': return 'complete';
+    default: return status;
+  }
+}
 ---
 
-<Layout title={`Prepare Interpretations - ${formatDate(date)} - Paths of Reverence`}>
+<Layout title={`Prepare Interpretations — ${planetName || 'Entry'} ${sequence} — Paths of Reverence`}>
   <div class="prepare-page">
     <header class="page-header">
-      <a href={`/practice/${date}`} class="back-link">← Back to {formatDate(date)}</a>
+      <a href={`/practice/${entryId}`} class="back-link">&larr; Back to Entry</a>
       <h1>Prepare Interpretations</h1>
-      <p class="subtitle">{formatDate(date)}</p>
-      {data?.planetary_card && (
-        <p class="planetary-card">Planetary Card: <strong>{data.planetary_card}</strong></p>
-      )}
+      <div class="header-meta">
+        <span class="planet-name">{planetName} — Entry {sequence} of 7</span>
+        {planetaryCard && (
+          <span class="planetary-card-name">{planetaryCard}</span>
+        )}
+      </div>
     </header>
 
     {error ? (
       <div class="error-state">
         <h2>Error Loading</h2>
         <p>{error}</p>
-        <a href="/history" class="btn">Back to Archive</a>
+        <a href="/" class="btn">Home</a>
       </div>
-    ) : !data?.entry_id ? (
+    ) : !entry ? (
       <div class="error-state">
-        <h2>No Entry Found</h2>
-        <p>This date doesn't have a daily entry yet.</p>
-        <a href={`/practice/${date}`} class="btn btn-primary">Go to Practice Page</a>
+        <h2>Entry Not Found</h2>
+        <p>This entry could not be found.</p>
+        <a href={`/practice/${entryId}`} class="btn btn-primary">Back to Entry</a>
       </div>
-    ) : allReady ? (
+    ) : allPrepared ? (
       <div class="all-ready-state">
-        <h2>All Interpretations Ready</h2>
-        <p>All domain interpretations have already been prepared.</p>
+        <h2>All Interpretations Prepared</h2>
+        <p>All domain interpretations have been prepared and are ready for your responses.</p>
+        <div class="status-grid">
+          {interpretations.map((interp) => (
+            <div class={`status-item domain-${interp.domain.toLowerCase()}`}>
+              <span class="domain-label">{interp.domain}</span>
+              <span class={`status-badge status-${interp.status}`}>{statusLabel(interp.status)}</span>
+              {interp.status === 'pending' && interp.interpretation_id && (
+                <a href={`/practice/respond/${interp.interpretation_id}`} class="btn btn-sm">Respond</a>
+              )}
+            </div>
+          ))}
+        </div>
         <div class="action-buttons">
-          <a href={`/practice/${date}`} class="btn btn-primary">View Today's Practice</a>
+          <a href={`/practice/${entryId}`} class="btn btn-primary">Back to Entry</a>
           <a href="/practice/pending" class="btn">View Pending Responses</a>
         </div>
       </div>
     ) : (
-      <div class="preparation-forms">
+      <div class="preparation-content">
         <div class="action-bar">
           <div class="status-summary">
-            <span class="needs-prep">{preparedCount} domain{preparedCount !== 1 ? 's' : ''} need{preparedCount === 1 ? 's' : ''} preparation</span>
+            <span class="needs-prep">{pendingCount} domain{pendingCount !== 1 ? 's' : ''} need{pendingCount === 1 ? 's' : ''} preparation</span>
+            {completionCount > 0 && (
+              <span class="completion-note">&nbsp;· {completionCount} complete</span>
+            )}
           </div>
-          <button type="button" class="btn btn-primary" id="generate-all-btn">
-            <span class="btn-icon">✨</span>
-            Generate All Interpretations
-          </button>
+          <form method="POST">
+            <input type="hidden" name="domain" value="all" />
+            <button type="submit" class="btn btn-primary">
+              Prepare All Domains
+            </button>
+          </form>
         </div>
 
-        <div class="interpretations-list" id="interpretations-list">
-          {data.interpretations.map((interp) => {
-            const domainCard = data.domain_cards?.[interp.domain] || 'Unknown';
-            const isReady = interp.status !== 'prepared';
+        <div class="interpretations-list">
+          {DOMAINS.map((domain) => {
+            const interp = interpretations.find(i => i.domain === domain);
+            const status = interp?.status ?? 'pending';
+            const isPending = status === 'pending';
+            const domainCard = domainCards[domain] || '';
 
             return (
               <div
-                class={`interpretation-form domain-${interp.domain.toLowerCase()} ${isReady ? 'is-ready' : ''}`}
-                data-domain={interp.domain}
-                data-interpretation-id={interp.interpretation_id}
-                data-domain-card={domainCard}
-                data-status={interp.status}
+                class={`interpretation-card domain-${domain.toLowerCase()} ${!isPending ? 'is-done' : ''}`}
+                data-domain={domain}
               >
-                <div class="form-header">
+                <div class="card-header">
                   <div class="header-left">
-                    <h3>{interp.domain}</h3>
-                    <span class="domain-card-name">{domainCard}</span>
+                    <h3>{domain}</h3>
+                    {domainCard && (
+                      <span class="domain-card-name">{domainCard}</span>
+                    )}
                   </div>
-                  <span class={`status-badge status-${interp.status}`}>
-                    {interp.status === 'prepared' ? 'needs prep' : interp.status}
+                  <span class={`status-badge status-${status}`}>
+                    {statusLabel(status)}
                   </span>
                 </div>
 
-                <div class="form-body">
-                  {isReady ? (
-                    <div class="ready-content">
-                      <div class="field">
-                        <label>Interpretation</label>
-                        <div class="readonly-text">{interp.prepared_interpretation}</div>
-                      </div>
-                      <div class="field">
-                        <label>Introspection Question</label>
-                        <div class="readonly-text question">{interp.introspection_question}</div>
+                <div class="card-body">
+                  {isPending ? (
+                    <div class="pending-content">
+                      <p class="pending-text">
+                        This domain interpretation has not been prepared yet.
+                        Click "Prepare" to generate the interpretation context.
+                      </p>
+                      <div class="card-actions">
+                        <form method="POST">
+                          <input type="hidden" name="domain" value={domain} />
+                          <button type="submit" class="btn btn-secondary">
+                            Prepare {domain}
+                          </button>
+                        </form>
                       </div>
                     </div>
                   ) : (
-                    <div class="editable-content">
-                      <div class="field">
-                        <label for={`interp-${interp.domain}`}>Interpretation</label>
-                        <textarea
-                          id={`interp-${interp.domain}`}
-                          name="interpretation"
-                          placeholder="Click 'Generate' to create an AI interpretation, or type your own..."
-                          rows="5"
-                        ></textarea>
-                      </div>
-
-                      <div class="field">
-                        <label for={`question-${interp.domain}`}>Introspection Question</label>
-                        <textarea
-                          id={`question-${interp.domain}`}
-                          name="question"
-                          placeholder="The question that will prompt your reflection..."
-                          rows="2"
-                        ></textarea>
-                      </div>
-
-                      <div class="form-footer">
-                        <button type="button" class="btn btn-secondary generate-btn" data-domain={interp.domain}>
-                          <span class="btn-icon">✨</span>
-                          Generate
-                        </button>
-                      </div>
+                    <div class="done-content">
+                      {status === 'responded' && (
+                        <p class="status-text">Response submitted — awaiting evaluation.</p>
+                      )}
+                      {status === 'evaluated' && (
+                        <p class="status-text">Evaluated — awaiting completion.</p>
+                      )}
+                      {status === 'complete' && (
+                        <div class="complete-indicator">
+                          <span class="checkmark">&#10003;</span>
+                          <span>Complete</span>
+                        </div>
+                      )}
+                      {status === 'pending' && interp?.interpretation_id && (
+                        <div class="prepared-actions">
+                          <a href={`/practice/respond/${interp.interpretation_id}`} class="btn btn-sm">
+                            Respond to Interpretation
+                          </a>
+                        </div>
+                      )}
+                      {(status === 'responded' || status === 'evaluated') && interp?.interpretation_id && (
+                        <div class="prepared-actions">
+                          <a href={`/practice/respond/${interp.interpretation_id}`} class="btn btn-sm">
+                            View Response
+                          </a>
+                        </div>
+                      )}
                     </div>
                   )}
-                </div>
-
-                <div class="loading-overlay" style="display: none;">
-                  <div class="spinner"></div>
-                  <span>Generating interpretation...</span>
                 </div>
               </div>
             );
           })}
         </div>
 
-        <div class="form-actions">
-          <a href={`/practice/${date}`} class="btn">Cancel</a>
-          <button type="button" class="btn btn-primary" id="save-all-btn">
-            Save All Preparations
-          </button>
+        <div class="page-actions">
+          <a href={`/practice/${entryId}`} class="btn">Back to Entry</a>
+          <a href={`/practice/session/${entryId}`} class="btn btn-primary">Open Chat Session</a>
         </div>
       </div>
     )}
   </div>
 </Layout>
-
-<script define:vars={{
-  date,
-  planetaryCard: data?.planetary_card,
-  planetaryCardDetail: data?.planetary_card_detail,
-  domainCardsDetail: data?.domain_cards_detail
-}}>
-  const API_BASE = 'https://neo4jmiddleware.robin-alligator.ts.net';
-
-  const generateAllBtn = document.getElementById('generate-all-btn');
-  const saveAllBtn = document.getElementById('save-all-btn');
-
-  // Get all domain forms that need preparation
-  const getDomainForms = () => {
-    return Array.from(document.querySelectorAll('.interpretation-form:not(.is-ready)'));
-  };
-
-  async function generateInterpretation(domain, domainCard) {
-    const form = document.querySelector(`.interpretation-form[data-domain="${domain}"]`);
-    if (!form) return;
-
-    const overlay = form.querySelector('.loading-overlay');
-    const interpTextarea = form.querySelector(`#interp-${domain}`);
-    const questionTextarea = form.querySelector(`#question-${domain}`);
-
-    if (overlay) overlay.style.display = 'flex';
-
-    try {
-      const response = await fetch('/api/generate-interpretation', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          domain,
-          planetary_card: planetaryCard,
-          planetary_card_detail: planetaryCardDetail || {},
-          domain_card: domainCard,
-          domain_card_detail: domainCardsDetail?.[domain] || {}
-        })
-      });
-
-      if (!response.ok) {
-        const error = await response.json().catch(() => ({}));
-        throw new Error(error.error || `Generation failed: ${response.status}`);
-      }
-
-      const result = await response.json();
-
-      if (interpTextarea) interpTextarea.value = result.interpretation;
-      if (questionTextarea) questionTextarea.value = result.introspection_question;
-
-      // Mark as modified
-      form.classList.add('is-modified');
-
-    } catch (err) {
-      console.error(`Error generating ${domain}:`, err);
-      alert(`Failed to generate ${domain} interpretation: ${err.message}`);
-    } finally {
-      if (overlay) overlay.style.display = 'none';
-    }
-  }
-
-  async function generateAll() {
-    const forms = getDomainForms();
-    if (forms.length === 0) {
-      alert('All interpretations are already prepared.');
-      return;
-    }
-
-    generateAllBtn.disabled = true;
-    generateAllBtn.innerHTML = '<span class="spinner-small"></span> Generating...';
-
-    for (const form of forms) {
-      const domain = form.dataset.domain;
-      const domainCard = form.dataset.domainCard;
-      await generateInterpretation(domain, domainCard);
-    }
-
-    generateAllBtn.disabled = false;
-    generateAllBtn.innerHTML = '<span class="btn-icon">✨</span> Generate All Interpretations';
-  }
-
-  async function prepareInterpretation(interpretationId, interpretation, question) {
-    const response = await fetch(`${API_BASE}/sacred-journey/daily/interpretation/${interpretationId}/prepare`, {
-      method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        prepared_interpretation: interpretation,
-        introspection_question: question
-      })
-    });
-
-    if (!response.ok) {
-      const error = await response.json().catch(() => ({}));
-      throw new Error(error.detail || `Failed to prepare: ${response.status}`);
-    }
-
-    return response.json();
-  }
-
-  async function saveAll() {
-    const forms = getDomainForms();
-    let successCount = 0;
-    let errors = [];
-
-    saveAllBtn.disabled = true;
-    saveAllBtn.textContent = 'Saving...';
-
-    for (const form of forms) {
-      const domain = form.dataset.domain;
-      const interpretationId = form.dataset.interpretationId;
-      const interpTextarea = form.querySelector(`#interp-${domain}`);
-      const questionTextarea = form.querySelector(`#question-${domain}`);
-      const statusBadge = form.querySelector('.status-badge');
-
-      const interpretation = interpTextarea?.value?.trim();
-      const question = questionTextarea?.value?.trim();
-
-      if (!interpretation || !question) {
-        errors.push(`${domain}: Missing interpretation or question`);
-        continue;
-      }
-
-      try {
-        await prepareInterpretation(interpretationId, interpretation, question);
-        successCount++;
-
-        // Update UI to show success
-        if (statusBadge) {
-          statusBadge.textContent = 'ready';
-          statusBadge.className = 'status-badge status-ready';
-        }
-        form.classList.add('is-ready');
-        form.classList.remove('is-modified');
-
-      } catch (err) {
-        errors.push(`${domain}: ${err.message}`);
-      }
-    }
-
-    saveAllBtn.disabled = false;
-    saveAllBtn.textContent = 'Save All Preparations';
-
-    if (errors.length > 0) {
-      alert(`Saved ${successCount} interpretation(s).\n\nErrors:\n${errors.join('\n')}`);
-    } else if (successCount > 0) {
-      // Show success and ask where to go next
-      const goToPending = confirm(
-        `Successfully prepared ${successCount} interpretation(s)!\n\n` +
-        `Your introspection questions are now ready.\n\n` +
-        `Click OK to respond to them now, or Cancel to return to today's practice.`
-      );
-      if (goToPending) {
-        window.location.href = `/practice/pending`;
-      } else {
-        window.location.href = `/practice/${date}`;
-      }
-    } else {
-      alert('No interpretations to save. Generate interpretations first.');
-    }
-  }
-
-  // Event listeners
-  generateAllBtn?.addEventListener('click', generateAll);
-  saveAllBtn?.addEventListener('click', saveAll);
-
-  // Per-domain generate buttons
-  document.querySelectorAll('.generate-btn').forEach(btn => {
-    btn.addEventListener('click', () => {
-      const domain = btn.dataset.domain;
-      const form = btn.closest('.interpretation-form');
-      const domainCard = form?.dataset.domainCard;
-      if (domain && domainCard) {
-        generateInterpretation(domain, domainCard);
-      }
-    });
-  });
-</script>
 
 <style>
   .prepare-page {
@@ -374,16 +261,24 @@ const preparedCount = data?.interpretations?.filter(i => i.status === 'prepared'
     color: var(--color-gold);
   }
 
-  .subtitle {
-    color: var(--color-text-muted);
-    margin: 0;
-  }
-
-  .planetary-card {
-    color: var(--color-gold);
+  .header-meta {
+    display: flex;
+    align-items: center;
+    gap: var(--space-md);
     margin-top: var(--space-sm);
   }
 
+  .planet-name {
+    color: var(--color-text-muted);
+  }
+
+  .planetary-card-name {
+    color: var(--color-gold);
+    font-family: var(--font-display);
+    font-size: 1rem;
+  }
+
+  /* Action bar */
   .action-bar {
     display: flex;
     justify-content: space-between;
@@ -403,35 +298,35 @@ const preparedCount = data?.interpretations?.filter(i => i.status === 'prepared'
     color: var(--color-gold);
   }
 
+  .completion-note {
+    color: var(--color-text-dim);
+  }
+
+  /* Interpretation cards */
   .interpretations-list {
     display: flex;
     flex-direction: column;
     gap: var(--space-lg);
   }
 
-  .interpretation-form {
+  .interpretation-card {
     background: var(--color-bg-card);
     border: 1px solid var(--color-border);
     border-radius: var(--card-radius);
     border-left: 4px solid var(--domain-color, var(--color-border));
     overflow: hidden;
-    position: relative;
   }
 
-  .interpretation-form.domain-body { --domain-color: var(--color-accent-body); }
-  .interpretation-form.domain-mind { --domain-color: var(--color-accent-mind); }
-  .interpretation-form.domain-heart { --domain-color: var(--color-accent-heart); }
-  .interpretation-form.domain-spirit { --domain-color: var(--color-accent-spirit); }
+  .interpretation-card.domain-physical { --domain-color: var(--color-accent-body); }
+  .interpretation-card.domain-emotional { --domain-color: var(--color-accent-heart); }
+  .interpretation-card.domain-mental { --domain-color: var(--color-accent-mind); }
+  .interpretation-card.domain-spiritual { --domain-color: var(--color-accent-spirit); }
 
-  .interpretation-form.is-ready {
+  .interpretation-card.is-done {
     opacity: 0.7;
   }
 
-  .interpretation-form.is-modified {
-    border-color: var(--color-gold);
-  }
-
-  .form-header {
+  .card-header {
     display: flex;
     justify-content: space-between;
     align-items: center;
@@ -446,7 +341,7 @@ const preparedCount = data?.interpretations?.filter(i => i.status === 'prepared'
     gap: var(--space-md);
   }
 
-  .form-header h3 {
+  .card-header h3 {
     margin: 0;
     color: var(--domain-color);
     font-family: var(--font-display);
@@ -462,93 +357,70 @@ const preparedCount = data?.interpretations?.filter(i => i.status === 'prepared'
     padding: 2px 8px;
     border-radius: 4px;
     text-transform: uppercase;
+    background: var(--color-bg);
+    color: var(--color-text-muted);
+  }
+
+  .status-badge.status-pending {
     background: rgba(201, 162, 39, 0.1);
     color: var(--color-gold-dim);
   }
 
-  .status-badge.status-ready,
-  .status-badge.status-responded,
-  .status-badge.status-complete {
-    background: rgba(34, 197, 94, 0.15);
-    color: #22c55e;
+  .status-badge.status-responded {
+    background: rgba(201, 162, 39, 0.2);
+    color: var(--color-gold);
   }
 
-  .form-body {
+  .status-badge.status-evaluated {
+    background: rgba(138, 130, 180, 0.2);
+    color: #a89fd4;
+  }
+
+  .status-badge.status-complete {
+    background: rgba(124, 152, 133, 0.2);
+    color: var(--color-accent-body);
+  }
+
+  .card-body {
     padding: var(--space-lg);
   }
 
-  .field {
-    margin-bottom: var(--space-md);
-  }
-
-  .field:last-child {
-    margin-bottom: 0;
-  }
-
-  .field label {
-    display: block;
-    font-size: 0.85rem;
-    color: var(--color-text-muted);
-    margin-bottom: var(--space-xs);
-  }
-
-  .field textarea {
-    width: 100%;
-    padding: var(--space-sm) var(--space-md);
-    font-family: var(--font-body);
-    font-size: 0.95rem;
-    line-height: 1.6;
-    background: var(--color-bg);
-    border: 1px solid var(--color-border);
-    border-radius: var(--card-radius);
-    color: var(--color-text);
-    resize: vertical;
-  }
-
-  .field textarea:focus {
-    outline: none;
-    border-color: var(--color-gold);
-  }
-
-  .field textarea::placeholder {
+  .pending-text {
     color: var(--color-text-dim);
-  }
-
-  .readonly-text {
-    padding: var(--space-sm) var(--space-md);
-    background: var(--color-bg);
-    border: 1px solid var(--color-border);
-    border-radius: var(--card-radius);
-    font-size: 0.95rem;
+    margin: 0 0 var(--space-md);
     line-height: 1.6;
-    color: var(--color-text-muted);
-    white-space: pre-wrap;
   }
 
-  .readonly-text.question {
-    font-style: italic;
-    color: var(--color-gold-dim);
-  }
-
-  .form-footer {
+  .card-actions {
     display: flex;
     justify-content: flex-end;
-    margin-top: var(--space-md);
-    padding-top: var(--space-md);
-    border-top: 1px solid var(--color-border);
   }
 
-  .form-actions {
+  .status-text {
+    color: var(--color-text-dim);
+    font-size: 0.9rem;
+    margin: 0;
+  }
+
+  .complete-indicator {
     display: flex;
-    justify-content: flex-end;
-    gap: var(--space-md);
-    margin-top: var(--space-xl);
-    padding-top: var(--space-lg);
-    border-top: 1px solid var(--color-border);
+    align-items: center;
+    gap: var(--space-sm);
+    color: var(--color-accent-body);
   }
 
-  .btn-icon {
-    margin-right: var(--space-xs);
+  .checkmark {
+    font-size: 1.2rem;
+  }
+
+  .prepared-actions {
+    margin-top: var(--space-sm);
+  }
+
+  .btn-sm {
+    font-size: 0.8rem;
+    padding: 4px 12px;
+    display: inline-block;
   }
 
   .btn-secondary {
@@ -562,43 +434,17 @@ const preparedCount = data?.interpretations?.filter(i => i.status === 'prepared'
     color: var(--color-gold);
   }
 
-  .loading-overlay {
-    position: absolute;
-    inset: 0;
-    background: rgba(0, 0, 0, 0.8);
+  /* Page actions */
+  .page-actions {
     display: flex;
-    flex-direction: column;
-    align-items: center;
-    justify-content: center;
+    justify-content: flex-end;
     gap: var(--space-md);
-    color: var(--color-gold);
-    z-index: 10;
+    margin-top: var(--space-xl);
+    padding-top: var(--space-lg);
+    border-top: 1px solid var(--color-border);
   }
 
-  .spinner {
-    width: 32px;
-    height: 32px;
-    border: 3px solid var(--color-border);
-    border-top-color: var(--color-gold);
-    border-radius: 50%;
-    animation: spin 1s linear infinite;
-  }
-
-  .spinner-small {
-    display: inline-block;
-    width: 16px;
-    height: 16px;
-    border: 2px solid var(--color-border);
-    border-top-color: var(--color-gold);
-    border-radius: 50%;
-    animation: spin 1s linear infinite;
-    margin-right: var(--space-xs);
-  }
-
-  @keyframes spin {
-    to { transform: rotate(360deg); }
-  }
-
+  /* States */
   .error-state,
   .all-ready-state {
     text-align: center;
@@ -610,6 +456,37 @@ const preparedCount = data?.interpretations?.filter(i => i.status === 'prepared'
 
   .all-ready-state h2 {
     color: #22c55e;
+  }
+
+  .status-grid {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: var(--space-md);
+    margin: var(--space-lg) 0;
+  }
+
+  .status-item {
+    background: var(--color-bg-card);
+    border: 1px solid var(--color-border);
+    border-radius: var(--card-radius);
+    padding: var(--space-md);
+    text-align: center;
+    border-top: 3px solid var(--domain-color, var(--color-border));
+  }
+
+  .status-item.domain-physical { --domain-color: var(--color-accent-body); }
+  .status-item.domain-emotional { --domain-color: var(--color-accent-heart); }
+  .status-item.domain-mental { --domain-color: var(--color-accent-mind); }
+  .status-item.domain-spiritual { --domain-color: var(--color-accent-spirit); }
+
+  .status-item .domain-label {
+    display: block;
+    font-family: var(--font-display);
+    font-size: 0.75rem;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    color: var(--domain-color);
+    margin-bottom: var(--space-xs);
   }
 
   .action-buttons {
@@ -626,7 +503,7 @@ const preparedCount = data?.interpretations?.filter(i => i.status === 'prepared'
       text-align: center;
     }
 
-    .form-actions {
+    .page-actions {
       flex-direction: column;
     }
 
@@ -634,6 +511,15 @@ const preparedCount = data?.interpretations?.filter(i => i.status === 'prepared'
       flex-direction: column;
       align-items: flex-start;
       gap: var(--space-xs);
+    }
+
+    .status-grid {
+      grid-template-columns: repeat(2, 1fr);
+    }
+
+    .header-meta {
+      flex-direction: column;
+      align-items: flex-start;
     }
   }
 </style>

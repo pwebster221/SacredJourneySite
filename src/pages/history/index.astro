@@ -1,80 +1,80 @@
 ---
 /**
- * History Archive - Past Weekly Readings
+ * Cycle History - Past Reading Cycles
  */
 import Layout from '../../layouts/Layout.astro';
 import { sacredJourney } from '../../lib/sacred-journey';
+import type { CycleHistoryItem } from '../../lib/sacred-journey';
 
-let archive = null;
+let history = null;
 let error = null;
 
 try {
-  archive = await sacredJourney.getHistoryArchive(20, true);
+  history = await sacredJourney.getCycleHistory(1, 20);
 } catch (e) {
-  error = e instanceof Error ? e.message : 'Failed to load archive';
+  error = e instanceof Error ? e.message : 'Failed to load cycle history';
 }
 
-const formatDate = (dateStr: string) => {
-  return new Date(dateStr).toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+const formatTimestamp = (iso: string) => {
+  return new Date(iso).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
 };
 
-const formatWeekRange = (start: string, end?: string) => {
-  const startDate = new Date(start);
-  const endDate = end ? new Date(end) : new Date(startDate.getTime() + 6 * 24 * 60 * 60 * 1000);
-  return `${formatDate(start)} – ${formatDate(endDate.toISOString())}`;
+const getCycleStatus = (cycle: CycleHistoryItem): 'complete' | 'active' => {
+  return cycle.completed_at ? 'complete' : 'active';
 };
 ---
 
-<Layout title="Archive - Paths of Reverence">
+<Layout title="Reading Archive - Paths of Reverence">
   <div class="archive-page">
     <header class="page-header">
-      <h1>Practice Archive</h1>
-      {archive && (
+      <h1>Reading Archive</h1>
+      {history && (
         <p class="stats">
-          {archive.total_readings} weeks · {archive.total_entries} daily entries
+          {history.total} cycles
         </p>
       )}
     </header>
-    
+
     {error ? (
       <div class="error-state"><p>{error}</p></div>
-    ) : !archive?.readings?.length ? (
+    ) : !history?.cycles?.length ? (
       <div class="empty-state">
         <h2>No History Yet</h2>
-        <p>Complete your first weekly reading to begin building your archive.</p>
+        <p>Complete your first reading cycle to begin building your archive.</p>
         <a href="/" class="btn btn-primary">Start Today</a>
       </div>
     ) : (
       <div class="readings-grid">
-        {archive.readings.map((reading: any) => (
-          <article class={`reading-card status-${reading.status}`}>
-            <header class="card-header">
-              <span class="week-range">{formatWeekRange(reading.week_start, reading.week_end)}</span>
-              <span class={`status-badge status-${reading.status}`}>{reading.status}</span>
-            </header>
-            
-            <div class="card-stats">
-              <div class="stat">
-                <span class="stat-value">{reading.days_complete}/7</span>
-                <span class="stat-label">Days</span>
+        {history.cycles.map((cycle: CycleHistoryItem) => {
+          const status = getCycleStatus(cycle);
+          return (
+            <article class={`reading-card status-${status}`}>
+              <header class="card-header">
+                <span class="week-range">
+                  {formatTimestamp(cycle.created_at)}
+                  {cycle.completed_at && ` – ${formatTimestamp(cycle.completed_at)}`}
+                </span>
+                <span class={`status-badge status-${status}`}>{status}</span>
+              </header>
+
+              <div class="card-stats">
+                <div class="stat">
+                  <span class="stat-value">{cycle.entries_completed}/7</span>
+                  <span class="stat-label">Entries</span>
+                </div>
+                {cycle.has_synthesis && (
+                  <div class="synthesis-badge">
+                    Synthesis
+                  </div>
+                )}
               </div>
-              <div class="stat">
-                <span class="stat-value">{reading.total_interpretations}</span>
-                <span class="stat-label">Interpretations</span>
-              </div>
-            </div>
-            
-            {reading.weekly_synthesis && (
-              <div class="synthesis-preview">
-                <p>{reading.weekly_synthesis.slice(0, 150)}...</p>
-              </div>
-            )}
-            
-            <a href={`/history/week/${reading.week_start}`} class="card-link">
-              View Details →
-            </a>
-          </article>
-        ))}
+
+              <a href={`/history/week/${cycle.cycle_id}`} class="card-link">
+                View Details →
+              </a>
+            </article>
+          );
+        })}
       </div>
     )}
   </div>
@@ -82,38 +82,38 @@ const formatWeekRange = (start: string, end?: string) => {
 
 <style>
   .archive-page { max-width: 1000px; margin: 0 auto; }
-  
+
   .page-header { margin-bottom: var(--space-2xl); }
   .stats { color: var(--color-text-muted); margin: 0; }
-  
+
   .empty-state {
     text-align: center; padding: var(--space-2xl);
     background: var(--color-bg-elevated); border: 1px dashed var(--color-border);
     border-radius: var(--card-radius);
   }
   .empty-state p { color: var(--color-text-muted); margin-bottom: var(--space-lg); }
-  
+
   .readings-grid {
     display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
     gap: var(--space-lg);
   }
-  
+
   .reading-card {
     background: var(--color-bg-card); border: 1px solid var(--color-border);
     border-radius: var(--card-radius); padding: var(--space-lg);
     display: flex; flex-direction: column; gap: var(--space-md);
   }
-  
+
   .reading-card.status-complete { border-color: var(--color-accent-body); }
-  
+
   .card-header {
     display: flex; justify-content: space-between; align-items: center;
   }
-  
+
   .week-range {
     font-family: var(--font-display); font-size: 1.1rem; color: var(--color-gold);
   }
-  
+
   .status-badge {
     font-size: 0.7rem; padding: 2px 8px; border-radius: 4px;
     text-transform: uppercase; letter-spacing: 0.05em;
@@ -125,25 +125,22 @@ const formatWeekRange = (start: string, end?: string) => {
   .status-badge.status-active {
     background: rgba(201, 162, 39, 0.2); color: var(--color-gold);
   }
-  
-  .card-stats { display: flex; gap: var(--space-xl); }
+
+  .card-stats { display: flex; gap: var(--space-xl); align-items: center; }
   .stat { display: flex; flex-direction: column; }
   .stat-value { font-family: var(--font-display); font-size: 1.5rem; color: var(--color-text); }
   .stat-label { font-size: 0.8rem; color: var(--color-text-dim); text-transform: uppercase; letter-spacing: 0.05em; }
-  
-  .synthesis-preview {
-    flex: 1; padding: var(--space-sm); background: var(--color-bg-elevated);
-    border-radius: var(--card-radius);
+
+  .synthesis-badge {
+    font-size: 0.7rem; padding: 2px 8px; border-radius: 4px;
+    text-transform: uppercase; letter-spacing: 0.05em;
+    background: rgba(124, 152, 133, 0.2); color: var(--color-accent-body);
   }
-  .synthesis-preview p {
-    margin: 0; font-size: 0.9rem; color: var(--color-text-muted);
-    font-style: italic; line-height: 1.5;
-  }
-  
+
   .card-link {
     font-family: var(--font-display); font-size: 0.85rem;
     text-transform: uppercase; letter-spacing: 0.1em; align-self: flex-end;
   }
-  
+
   .error-state { text-align: center; padding: var(--space-xl); color: var(--color-accent-heart); }
 </style>

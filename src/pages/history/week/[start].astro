@@ -1,191 +1,262 @@
 ---
 /**
- * Weekly Reading Detail Page
- * 
- * Shows full details of a specific week's reading and daily entries
+ * Cycle Timeline Detail Page
+ *
+ * Shows full details of a reading cycle: all 7 planetary entries,
+ * their completion status, cards assigned, and cycle synthesis.
+ *
+ * The [start] param receives a cycle_id UUID (V2).
  */
 import Layout from '../../../layouts/Layout.astro';
 import { sacredJourney } from '../../../lib/sacred-journey';
+import type { CycleTimelineResponse } from '../../../lib/sacred-journey';
+import { DOMAINS } from '../../../lib/domain-utils';
 
-const { start } = Astro.params;
+const { start: cycleId } = Astro.params;
 
-let weekData = null;
-let error = null;
+let timeline: CycleTimelineResponse | null = null;
+let error: string | null = null;
 
-// Fetch week progress
 try {
-  weekData = await sacredJourney.getWeeklyProgress(start!);
+  timeline = await sacredJourney.getCycleTimeline(cycleId!);
 } catch (e) {
-  error = e instanceof Error ? e.message : 'Failed to load week data';
+  error = e instanceof Error ? e.message : 'Failed to load cycle timeline';
 }
 
-// Parse date string as local date (avoid timezone issues with UTC interpretation)
-const parseLocalDate = (dateStr: string) => {
-  const [year, month, day] = dateStr.split('-').map(Number);
-  return new Date(year, month - 1, day);
+// Planet metadata for display
+const PLANET_INFO: Record<string, { symbol: string; theme: string }> = {
+  Sun:     { symbol: '\u2609', theme: 'Identity, vitality, core self' },
+  Moon:    { symbol: '\u263D', theme: 'Emotions, intuition, inner world' },
+  Mars:    { symbol: '\u2642', theme: 'Action, drive, courage' },
+  Mercury: { symbol: '\u263F', theme: 'Communication, intellect, learning' },
+  Jupiter: { symbol: '\u2643', theme: 'Expansion, wisdom, abundance' },
+  Venus:   { symbol: '\u2640', theme: 'Love, values, beauty' },
+  Saturn:  { symbol: '\u2644', theme: 'Structure, discipline, mastery' },
 };
 
-const formatDate = (dateStr: string) => {
-  return parseLocalDate(dateStr).toLocaleDateString('en-US', {
-    weekday: 'long',
+function formatDateTime(isoString: string | null): string {
+  if (!isoString) return '';
+  const datePart = isoString.split('T')[0];
+  const [year, month, day] = datePart.split('-').map(Number);
+  return new Date(year, month - 1, day).toLocaleDateString('en-US', {
     month: 'long',
     day: 'numeric',
+    year: 'numeric',
   });
-};
+}
 
-const weekDays = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+function formatDateShort(isoString: string | null): string {
+  if (!isoString) return '';
+  const datePart = isoString.split('T')[0];
+  const [year, month, day] = datePart.split('-').map(Number);
+  return new Date(year, month - 1, day).toLocaleDateString('en-US', {
+    month: 'short',
+    day: 'numeric',
+  });
+}
 
-// Get date for a specific day offset from week start
-const getDayDate = (dayIndex: number) => {
-  const baseDate = parseLocalDate(start!);
-  baseDate.setDate(baseDate.getDate() + dayIndex);
-  return baseDate;
-};
+function formatDuration(hours: number): string {
+  if (hours < 1) return 'Less than 1 hour';
+  if (hours < 24) return `${Math.round(hours)} hours`;
+  const days = Math.floor(hours / 24);
+  const remainingHours = Math.round(hours % 24);
+  if (remainingHours === 0) return `${days} day${days !== 1 ? 's' : ''}`;
+  return `${days} day${days !== 1 ? 's' : ''}, ${remainingHours} hr${remainingHours !== 1 ? 's' : ''}`;
+}
 
-const formatDayDate = (date: Date) => {
-  return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
-};
-
-const toDateString = (date: Date) => {
-  const y = date.getFullYear();
-  const m = String(date.getMonth() + 1).padStart(2, '0');
-  const d = String(date.getDate()).padStart(2, '0');
-  return `${y}-${m}-${d}`;
-};
-
-// Calculate the next incomplete day's date
-const getNextPracticeDate = () => {
-  if (!weekData || weekData.days_complete >= 7) return null;
-  return toDateString(getDayDate(weekData.days_complete));
-};
-
-const nextPracticeDate = getNextPracticeDate();
+// Find the next available entry for the "continue" action
+const nextEntry = timeline?.entries.find(e => e.status === 'available' || e.status === 'active' || e.status === 'integrating') ?? null;
 ---
 
-<Layout title={`Week of ${start} - Paths of Reverence`}>
-  <div class="week-detail-page">
+<Layout title={`Cycle Timeline - Paths of Reverence`}>
+  <div class="cycle-detail-page">
     <header class="page-header">
-      <a href="/history" class="back-link">← Back to Archive</a>
-      <h1>Week of {formatDate(start!)}</h1>
+      <a href="/history" class="back-link">&larr; Back to Archive</a>
+      <h1>Cycle Timeline</h1>
     </header>
-    
+
     {error ? (
       <div class="error-state">
         <p>{error}</p>
-        <p class="hint">This week may not have a reading yet.</p>
-        <a href="/practice/new-week" class="btn btn-primary">Create New Reading</a>
+        <p class="hint">This cycle may not exist or could not be loaded.</p>
+        <a href="/history" class="btn btn-primary">Back to Archive</a>
       </div>
-    ) : weekData ? (
-      <div class="week-content">
+    ) : timeline ? (
+      <div class="cycle-content">
+        <!-- Cycle Header / Progress -->
         <section class="progress-section">
           <div class="progress-stats">
             <div class="stat">
-              <span class="stat-value">{weekData.days_complete}/7</span>
-              <span class="stat-label">Days Complete</span>
+              <span class="stat-value">{timeline.entries_completed}/7</span>
+              <span class="stat-label">Entries Complete</span>
             </div>
             <div class="stat">
-              <span class="stat-value">{weekData.interpretations_complete}</span>
-              <span class="stat-label">Interpretations</span>
+              <span class="stat-value">
+                {timeline.total_duration_hours > 0 ? formatDuration(timeline.total_duration_hours) : '--'}
+              </span>
+              <span class="stat-label">Duration</span>
             </div>
             <div class="stat">
-              <span class={`status-badge status-${weekData.status}`}>
-                {weekData.status}
+              <span class={`status-badge status-${timeline.status}`}>
+                {timeline.status}
               </span>
             </div>
           </div>
-          
+
+          <div class="cycle-dates">
+            <span>Started: {formatDateTime(timeline.created_at)}</span>
+            {timeline.completed_at && (
+              <span>Completed: {formatDateTime(timeline.completed_at)}</span>
+            )}
+          </div>
+
           <div class="progress-bar-container">
             <div class="progress-bar">
-              <div 
-                class="progress-fill" 
-                style={`width: ${(weekData.days_complete / 7) * 100}%`}
+              <div
+                class="progress-fill"
+                style={`width: ${(timeline.entries_completed / 7) * 100}%`}
               ></div>
             </div>
           </div>
         </section>
-        
-        <section class="days-section">
-          <h2>Daily Entries</h2>
-          <div class="days-grid">
-            {weekDays.map((day, index) => {
-              const dayDate = getDayDate(index);
-              const dateStr = toDateString(dayDate);
-              const isComplete = index < weekData.days_complete;
-              const isNext = index === weekData.days_complete;
-              const isPast = index < weekData.days_complete;
-              const isFuture = index > weekData.days_complete;
+
+        <!-- Planetary Entries -->
+        <section class="entries-section">
+          <h2>Planetary Entries</h2>
+          <div class="entries-grid">
+            {timeline.entries.map((entry) => {
+              const info = PLANET_INFO[entry.planet] || { symbol: '?', theme: '' };
+              const isComplete = entry.status === 'complete';
+              const isActive = entry.status === 'active' || entry.status === 'integrating';
+              const cardName = timeline.planetary_cards[String(entry.sequence)] ?? null;
 
               return (
-                <div class:list={['day-card', { complete: isComplete, next: isNext }]}>
-                  <span class="day-name">{day}</span>
-                  <span class="day-date">{formatDayDate(dayDate)}</span>
-                  {isComplete ? (
-                    <div class="day-actions">
-                      <a href={`/practice/${dateStr}`} class="day-status complete" title="View completed entry">✓</a>
-                    </div>
-                  ) : isNext ? (
-                    <div class="day-actions">
-                      <a href={`/practice/session/${dateStr}`} class="btn btn-small btn-primary">Session</a>
-                    </div>
-                  ) : isFuture ? (
-                    <div class="day-actions">
-                      <a href={`/practice/session/${dateStr}`} class="btn btn-small">Session</a>
-                    </div>
-                  ) : (
-                    <span class="day-status pending">—</span>
+                <div class:list={['entry-card', { complete: isComplete, active: isActive }]}>
+                  <span class="planet-symbol">{info.symbol}</span>
+                  <span class="planet-name">{entry.planet}</span>
+                  <span class="entry-sequence">Entry {entry.sequence}</span>
+                  {cardName && (
+                    <span class="card-name" title={cardName}>{cardName}</span>
                   )}
+                  <div class="entry-meta">
+                    <span class={`entry-status status-${entry.status}`}>{entry.status}</span>
+                    {entry.interpretations_completed > 0 && (
+                      <span class="interp-count" title="Interpretations completed">
+                        {entry.interpretations_completed}/4
+                      </span>
+                    )}
+                    {entry.has_synthesis && (
+                      <span class="synthesis-indicator" title="Synthesis complete">S</span>
+                    )}
+                  </div>
+                  {entry.started_at && (
+                    <span class="entry-date">{formatDateShort(entry.started_at)}</span>
+                  )}
+                  <div class="entry-actions">
+                    {isComplete ? (
+                      <a href={`/practice/${entry.entry_id}`} class="day-status complete" title="View completed entry">&#10003;</a>
+                    ) : isActive ? (
+                      <a href={`/practice/${entry.entry_id}`} class="btn btn-small btn-primary">Continue</a>
+                    ) : (
+                      <span class="day-status pending">&mdash;</span>
+                    )}
+                  </div>
                 </div>
               );
             })}
           </div>
         </section>
-        
-        {weekData.status === 'active' && nextPracticeDate && (
+
+        <!-- Planetary Cards -->
+        {Object.keys(timeline.planetary_cards).length > 0 && (
+          <section class="cards-section">
+            <h2>Planetary Cards</h2>
+            <div class="cards-list">
+              {Object.entries(timeline.planetary_cards).map(([seq, cardName]) => {
+                const entry = timeline.entries.find(e => e.sequence === Number(seq));
+                const planet = entry?.planet ?? `Sequence ${seq}`;
+                const info = PLANET_INFO[planet] || { symbol: '?', theme: '' };
+                return (
+                  <div class="card-item">
+                    <span class="card-planet">{info.symbol} {planet}</span>
+                    <span class="card-value">{cardName}</span>
+                  </div>
+                );
+              })}
+            </div>
+          </section>
+        )}
+
+        <!-- Domain Cards -->
+        {Object.keys(timeline.domain_cards).length > 0 && (
+          <section class="cards-section">
+            <h2>Domain Cards</h2>
+            <div class="cards-list">
+              {DOMAINS.map((domain) => {
+                const cardName = (timeline.domain_cards as Record<string, string>)[domain];
+                return cardName ? (
+                  <div class="card-item">
+                    <span class="card-domain">{domain}</span>
+                    <span class="card-value">{cardName}</span>
+                  </div>
+                ) : null;
+              })}
+            </div>
+          </section>
+        )}
+
+        <!-- Cycle Synthesis -->
+        {timeline.has_cycle_synthesis && (
+          <section class="synthesis-section">
+            <h2>Cycle Synthesis</h2>
+            <p class="synthesis-note">This cycle has a completed synthesis.</p>
+          </section>
+        )}
+
+        <!-- Actions -->
+        {timeline.status === 'active' && nextEntry && (
           <section class="actions-section">
-            <a href={`/practice/session/${nextPracticeDate}`} class="btn btn-primary">
-              Start Session — {weekDays[weekData.days_complete]}
-            </a>
-            <a href={`/practice/${nextPracticeDate}`} class="btn" style="margin-left: var(--space-md);">
-              View Practice
+            <a href={`/practice/${nextEntry.entry_id}`} class="btn btn-primary">
+              Continue — {PLANET_INFO[nextEntry.planet]?.symbol} {nextEntry.planet}
             </a>
           </section>
         )}
-        
-        {weekData.status === 'complete' && (
+
+        {timeline.status === 'complete' && (
           <section class="actions-section">
-            <p class="complete-message">✦ This week's practice is complete ✦</p>
+            <p class="complete-message">&#10022; This cycle's practice is complete &#10022;</p>
           </section>
         )}
       </div>
     ) : (
       <div class="empty-state">
-        <p>No data found for this week.</p>
+        <p>No data found for this cycle.</p>
       </div>
     )}
   </div>
 </Layout>
 
 <style>
-  .week-detail-page {
+  .cycle-detail-page {
     max-width: 800px;
     margin: 0 auto;
   }
-  
+
   .page-header {
     margin-bottom: var(--space-2xl);
   }
-  
+
   .back-link {
     display: inline-block;
     font-size: 0.9rem;
     color: var(--color-text-muted);
     margin-bottom: var(--space-md);
   }
-  
+
   .back-link:hover {
     color: var(--color-gold);
   }
-  
+
   .progress-section {
     background: var(--color-bg-elevated);
     border: 1px solid var(--color-border);
@@ -193,34 +264,43 @@ const nextPracticeDate = getNextPracticeDate();
     padding: var(--space-xl);
     margin-bottom: var(--space-2xl);
   }
-  
+
   .progress-stats {
     display: flex;
     justify-content: space-around;
     align-items: center;
     margin-bottom: var(--space-lg);
   }
-  
+
   .stat {
     display: flex;
     flex-direction: column;
     align-items: center;
     gap: var(--space-xs);
   }
-  
+
   .stat-value {
     font-family: var(--font-display);
-    font-size: 2rem;
+    font-size: 1.5rem;
     color: var(--color-gold);
   }
-  
+
   .stat-label {
     font-size: 0.8rem;
     color: var(--color-text-dim);
     text-transform: uppercase;
     letter-spacing: 0.05em;
   }
-  
+
+  .cycle-dates {
+    display: flex;
+    justify-content: center;
+    gap: var(--space-xl);
+    font-size: 0.85rem;
+    color: var(--color-text-dim);
+    margin-bottom: var(--space-lg);
+  }
+
   .status-badge {
     font-family: var(--font-display);
     font-size: 0.85rem;
@@ -229,45 +309,48 @@ const nextPracticeDate = getNextPracticeDate();
     text-transform: uppercase;
     letter-spacing: 0.1em;
   }
-  
+
   .status-badge.status-active {
     background: rgba(201, 162, 39, 0.2);
     color: var(--color-gold);
   }
-  
+
   .status-badge.status-complete {
     background: rgba(124, 152, 133, 0.2);
     color: var(--color-accent-body);
   }
-  
+
   .progress-bar-container {
     padding: 0 var(--space-md);
   }
-  
+
   .progress-bar {
     height: 8px;
     background: var(--color-bg-card);
     border-radius: 4px;
     overflow: hidden;
   }
-  
+
   .progress-fill {
     height: 100%;
     background: linear-gradient(90deg, var(--color-gold-dim), var(--color-gold));
     transition: width 0.3s ease;
   }
-  
-  .days-section h2 {
+
+  .entries-section h2,
+  .cards-section h2,
+  .synthesis-section h2 {
     margin-bottom: var(--space-lg);
   }
-  
-  .days-grid {
+
+  .entries-grid {
     display: grid;
     grid-template-columns: repeat(7, 1fr);
     gap: var(--space-sm);
+    margin-bottom: var(--space-2xl);
   }
-  
-  .day-card {
+
+  .entry-card {
     background: var(--color-bg-card);
     border: 1px solid var(--color-border);
     border-radius: var(--card-radius);
@@ -278,72 +361,188 @@ const nextPracticeDate = getNextPracticeDate();
     gap: var(--space-xs);
     text-align: center;
   }
-  
-  .day-card.complete {
+
+  .entry-card.complete {
     border-color: var(--color-accent-body);
   }
-  
-  .day-card.next {
+
+  .entry-card.active {
     border-color: var(--color-gold);
     box-shadow: 0 0 12px rgba(201, 162, 39, 0.2);
   }
-  
-  .day-name {
+
+  .planet-symbol {
+    font-size: 1.5rem;
+    line-height: 1;
+  }
+
+  .planet-name {
     font-family: var(--font-display);
     font-size: 0.75rem;
     text-transform: uppercase;
     letter-spacing: 0.1em;
     color: var(--color-text);
   }
-  
-  .day-date {
-    font-size: 0.8rem;
+
+  .entry-sequence {
+    font-size: 0.7rem;
     color: var(--color-text-dim);
   }
-  
-  .day-status {
-    font-size: 1.2rem;
-    margin-top: var(--space-xs);
-    text-decoration: none;
+
+  .card-name {
+    font-size: 0.7rem;
+    color: var(--color-gold-dim);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    max-width: 100%;
   }
-  
-  .day-status.complete {
+
+  .entry-meta {
+    display: flex;
+    gap: var(--space-xs);
+    align-items: center;
+    flex-wrap: wrap;
+    justify-content: center;
+  }
+
+  .entry-status {
+    font-size: 0.65rem;
+    padding: 2px 6px;
+    border-radius: 3px;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+  }
+
+  .entry-status.status-complete {
+    background: rgba(124, 152, 133, 0.2);
     color: var(--color-accent-body);
   }
-  
-  .day-status.pending {
-    color: var(--color-text-dim);
-  }
-  
-  a.day-status.complete:hover {
+
+  .entry-status.status-active {
+    background: rgba(201, 162, 39, 0.2);
     color: var(--color-gold);
   }
-  
-  .btn-small {
+
+  .entry-status.status-integrating {
+    background: rgba(201, 162, 39, 0.15);
+    color: var(--color-gold-dim);
+  }
+
+  .entry-status.status-available {
+    background: rgba(255, 255, 255, 0.05);
+    color: var(--color-text-dim);
+  }
+
+  .interp-count {
+    font-size: 0.65rem;
+    color: var(--color-text-dim);
+  }
+
+  .synthesis-indicator {
+    font-size: 0.6rem;
+    font-weight: bold;
+    color: var(--color-accent-body);
+    border: 1px solid var(--color-accent-body);
+    border-radius: 50%;
+    width: 16px;
+    height: 16px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+
+  .entry-date {
     font-size: 0.7rem;
-    padding: var(--space-xs) var(--space-sm);
+    color: var(--color-text-dim);
+  }
+
+  .entry-actions {
     margin-top: var(--space-xs);
   }
 
-  .day-actions {
-    display: flex;
-    flex-direction: column;
-    gap: var(--space-xs);
-    align-items: center;
-    margin-top: var(--space-xs);
+  .day-status {
+    font-size: 1.2rem;
+    text-decoration: none;
   }
-  
+
+  .day-status.complete {
+    color: var(--color-accent-body);
+  }
+
+  .day-status.pending {
+    color: var(--color-text-dim);
+  }
+
+  a.day-status.complete:hover {
+    color: var(--color-gold);
+  }
+
+  .btn-small {
+    font-size: 0.7rem;
+    padding: var(--space-xs) var(--space-sm);
+  }
+
+  /* Cards sections */
+  .cards-section {
+    background: var(--color-bg-elevated);
+    border: 1px solid var(--color-border);
+    border-radius: var(--card-radius);
+    padding: var(--space-xl);
+    margin-bottom: var(--space-xl);
+  }
+
+  .cards-list {
+    display: grid;
+    gap: var(--space-sm);
+  }
+
+  .card-item {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: var(--space-sm) var(--space-md);
+    background: var(--color-bg-card);
+    border-radius: var(--card-radius);
+  }
+
+  .card-planet,
+  .card-domain {
+    font-family: var(--font-display);
+    font-size: 0.85rem;
+    color: var(--color-text);
+  }
+
+  .card-value {
+    font-size: 0.85rem;
+    color: var(--color-gold);
+  }
+
+  /* Synthesis section */
+  .synthesis-section {
+    background: var(--color-bg-elevated);
+    border: 1px solid var(--color-accent-body);
+    border-radius: var(--card-radius);
+    padding: var(--space-xl);
+    margin-bottom: var(--space-xl);
+  }
+
+  .synthesis-note {
+    color: var(--color-text-dim);
+    font-style: italic;
+  }
+
   .actions-section {
     text-align: center;
     margin-top: var(--space-2xl);
   }
-  
+
   .complete-message {
     color: var(--color-accent-body);
     font-family: var(--font-display);
     letter-spacing: 0.1em;
   }
-  
+
   .error-state, .empty-state {
     text-align: center;
     padding: var(--space-2xl);
@@ -351,23 +550,29 @@ const nextPracticeDate = getNextPracticeDate();
     border: 1px dashed var(--color-border);
     border-radius: var(--card-radius);
   }
-  
+
   .hint {
     color: var(--color-text-dim);
     margin-bottom: var(--space-lg);
   }
-  
+
   @media (max-width: 768px) {
-    .days-grid {
+    .entries-grid {
       grid-template-columns: repeat(4, 1fr);
     }
+
+    .cycle-dates {
+      flex-direction: column;
+      align-items: center;
+      gap: var(--space-xs);
+    }
   }
-  
+
   @media (max-width: 480px) {
-    .days-grid {
+    .entries-grid {
       grid-template-columns: repeat(2, 1fr);
     }
-    
+
     .progress-stats {
       flex-direction: column;
       gap: var(--space-md);

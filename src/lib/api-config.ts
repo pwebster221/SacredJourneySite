@@ -8,7 +8,7 @@
 
 export const API_BASE = import.meta.env.PUBLIC_API_BASE || 'https://repository.dubtown-server.us';
 
-/** V2 API path prefix. Usage: `${getApiBase()}${V2_PREFIX}/cycles/active` */
+/** V2 API path prefix. SSR: `${API_BASE}${V2_PREFIX}/cycles/active`  Client: `${getClientApiBase()}${V2_PREFIX}/cycles/active` */
 export const V2_PREFIX = '/v2/sacred-journey';
 
 /** Tailscale internal URL for local development */

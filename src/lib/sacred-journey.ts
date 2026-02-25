@@ -6,6 +6,7 @@
  */
 
 import { API_BASE, V2_PREFIX } from './api-config'
+import type { DomainKey } from './domain-utils'
 
 // ============================================================
 // V2 Types
@@ -14,7 +15,7 @@ import { API_BASE, V2_PREFIX } from './api-config'
 export type EntryStatus = 'available' | 'active' | 'integrating' | 'complete'
 export type InterpretationStatus = 'pending' | 'responded' | 'evaluated' | 'complete'
 export type CycleStatus = 'active' | 'complete'
-export type Domain = 'Physical' | 'Emotional' | 'Mental' | 'Spiritual'
+export type Domain = DomainKey
 
 export interface ReadingCycleResponse {
   cycle_id: string

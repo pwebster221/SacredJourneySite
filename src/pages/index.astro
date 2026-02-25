@@ -1,55 +1,58 @@
 ---
 /**
- * Paths of Reverence - Home / Today's Spread
- * 
- * Displays the current weekly reading and today's daily spread
- * with interactive interpretation status
+ * Paths of Reverence - Home / Active Cycle
+ *
+ * Displays the current active reading cycle and the current progression entry
+ * (the active planet in sequence), with action prompts for the next step.
  */
 import Layout from '../layouts/Layout.astro';
 import { sacredJourney } from '../lib/sacred-journey';
 
-// Fetch current spread from API
-let currentSpread = null;
+// Fetch active cycle and progress from V2 API
+let activeCycle = null;
+let progress = null;
+let currentEntry = null;
 let error = null;
-let noActiveWeek = false;
 
 try {
-  currentSpread = await sacredJourney.getCurrentSpread();
-} catch (e) {
-  const message = e instanceof Error ? e.message : 'Failed to load current spread';
-  // 404 means no active weekly reading - not an error, just needs a new week
-  if (message.includes('404')) {
-    noActiveWeek = true;
-  } else {
-    error = message;
+  const { active_cycles } = await sacredJourney.getActiveCycles();
+  activeCycle = active_cycles[0] ?? null;
+  if (activeCycle) {
+    progress = await sacredJourney.getCycleProgress(activeCycle.cycle_id);
+    currentEntry = progress?.current_entry ?? null;
   }
+} catch (e) {
+  error = e instanceof Error ? e.message : 'Failed to load active cycle';
 }
 
-// Parse date string as local date (avoid timezone issues)
-const parseLocalDate = (dateStr: string) => {
-  const [year, month, day] = dateStr.split('-').map(Number);
-  return new Date(year, month - 1, day);
-};
+// Planet sequence (1–7) — used as fallback labels
+const PLANET_SEQUENCE = ['Sun', 'Moon', 'Mars', 'Mercury', 'Jupiter', 'Venus', 'Saturn'];
 
-// Helper to format date
-const formatDate = (dateStr: string) => {
-  return parseLocalDate(dateStr).toLocaleDateString('en-US', {
+// Count completed entries
+const completedCount = progress?.entries.filter(e => e.status === 'complete').length ?? 0;
+
+// Format cycle start date from ISO timestamp
+function formatCycleDate(isoString: string): string {
+  const date = new Date(isoString);
+  return date.toLocaleDateString('en-US', {
     weekday: 'long',
     month: 'long',
     day: 'numeric',
   });
-};
+}
 
-// Days of the week in order
-const weekDays = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
-const domains = ['Body', 'Mind', 'Heart', 'Spirit'];
-
-// Get today's day name and date
-const today = new Date().toLocaleDateString('en-US', { weekday: 'long' });
-const todayDate = new Date().toISOString().split('T')[0];
+// Map entry status to a human-readable action label
+function entryActionLabel(status: string): string {
+  switch (status) {
+    case 'available': return 'Begin';
+    case 'active': return 'Continue';
+    case 'integrating': return 'Integrate';
+    default: return 'View';
+  }
+}
 ---
 
-<Layout title="Today's Spread - Paths of Reverence">
+<Layout title="Today's Practice - Paths of Reverence">
   <div class="spread-page">
     {error ? (
       <div class="error-state">
@@ -57,133 +60,86 @@ const todayDate = new Date().toISOString().split('T')[0];
         <p>{error}</p>
         <p class="hint">Ensure the Sacred Journey API is accessible.</p>
       </div>
-    ) : (noActiveWeek || !currentSpread) ? (
+    ) : !activeCycle ? (
       <div class="empty-state">
         <div class="empty-icon">✦</div>
-        <h2>Begin a New Week</h2>
-        <p>Today is {today}. Draw your cards and start your weekly practice.</p>
-        <a href="/practice/new-week" class="btn btn-primary">Begin New Week</a>
+        <h2>Begin a New Cycle</h2>
+        <p>No active reading cycle. Draw your cards and start your planetary journey.</p>
+        <a href="/practice/new-week" class="btn btn-primary">Begin New Cycle</a>
         <a href="/history" class="btn" style="margin-left: var(--space-md);">View Archive</a>
       </div>
     ) : (
       <>
-        {/* Weekly Overview */}
+        {/* Cycle Overview */}
         <section class="weekly-overview">
           <header class="section-header">
-            <h1>Week of {formatDate(currentSpread.week_start)}</h1>
+            <h1>Cycle begun {formatCycleDate(activeCycle.created_at)}</h1>
             <div class="week-progress">
-              <span class="progress-text">{currentSpread.days_complete}/7 days complete</span>
+              <span class="progress-text">{completedCount}/7 planets complete</span>
               <div class="progress-bar">
-                <div class="progress-fill" style={`width: ${(currentSpread.days_complete / 7) * 100}%`}></div>
+                <div class="progress-fill" style={`width: ${(completedCount / 7) * 100}%`}></div>
               </div>
             </div>
           </header>
-          
-          {/* Planetary Cards Row */}
+
+          {/* Planetary Sequence Row */}
           <div class="planetary-spread">
-            <h2>Planetary Cards</h2>
+            <h2>Planetary Sequence</h2>
             <div class="card-row">
-              {weekDays.map((day) => (
-                <div class={`spread-card ${day === today ? 'is-today' : ''}`}>
-                  <span class="card-day">{day.slice(0, 3)}</span>
-                  <span class="card-name">{currentSpread.planetary_cards[day]}</span>
-                </div>
-              ))}
-            </div>
-          </div>
-          
-          {/* Domain Cards Row */}
-          <div class="domain-spread">
-            <h2>Domain Cards</h2>
-            <div class="card-row domains">
-              {domains.map((domain) => (
-                <div class={`spread-card domain-${domain.toLowerCase()}`}>
-                  <span class="card-domain">{domain}</span>
-                  <span class="card-name">{currentSpread.domain_cards[domain]}</span>
-                </div>
-              ))}
+              {progress ? (
+                progress.entries.map((entry) => (
+                  <div class={`spread-card ${entry.entry_id === currentEntry?.entry_id ? 'is-today' : ''} status-card-${entry.status}`}>
+                    <span class="card-day">{entry.sequence}</span>
+                    <span class="card-name">{entry.planet}</span>
+                    {entry.status === 'complete' && <span class="card-status-icon">✓</span>}
+                  </div>
+                ))
+              ) : (
+                PLANET_SEQUENCE.map((planet, i) => (
+                  <div class="spread-card">
+                    <span class="card-day">{i + 1}</span>
+                    <span class="card-name">{planet}</span>
+                  </div>
+                ))
+              )}
             </div>
           </div>
         </section>
-        
-        {/* Today's Practice */}
-        {currentSpread.today ? (
+
+        {/* Current Entry / Active Planet */}
+        {currentEntry ? (
           <section class="today-practice">
             <header class="section-header">
-              <h2>Today's Practice — {currentSpread.today.day_of_week}</h2>
-              <span class={`status-badge status-${currentSpread.today.status}`}>
-                {currentSpread.today.status}
+              <h2>Current Planet — {currentEntry.planet}</h2>
+              <span class={`status-badge status-${currentEntry.status}`}>
+                {currentEntry.status}
               </span>
             </header>
-            
+
             <div class="today-cards">
               <div class="planetary-focus">
-                <span class="label">Planetary Focus</span>
-                <span class="value">{currentSpread.today.planetary_card}</span>
+                <span class="label">Sequence Position</span>
+                <span class="value">{currentEntry.sequence} of 7 — {currentEntry.planet}</span>
               </div>
             </div>
-            
-            {/* Interpretation Status */}
-            <div class="interpretations-grid">
-              {currentSpread.today.interpretations.map((interp) => (
-                <div class={`interpretation-card domain-${interp.domain.toLowerCase()}`}>
-                  <div class="interp-header">
-                    <span class="interp-domain">{interp.domain}</span>
-                    <span class={`interp-status status-${interp.status}`}>{interp.status}</span>
-                  </div>
-                  
-                  {interp.status === 'ready' && interp.introspection_question && (
-                    <div class="interp-question">
-                      <p>{interp.introspection_question}</p>
-                      <a href={`/practice/${currentSpread.today.date}/${interp.domain.toLowerCase()}`} class="btn">
-                        Respond
-                      </a>
-                    </div>
-                  )}
-                  
-                  {interp.status === 'complete' && (
-                    <div class="interp-complete">
-                      <span class="checkmark">✓</span>
-                      <span>Completed</span>
-                    </div>
-                  )}
-                  
-                  {interp.status === 'prepared' && (
-                    <div class="interp-waiting">
-                      <span>Awaiting preparation...</span>
-                    </div>
-                  )}
-                </div>
-              ))}
-            </div>
-            
-            {/* Daily Synthesis */}
-            {currentSpread.today.synthesis && (
-              <div class="daily-synthesis">
-                <h3>Daily Synthesis</h3>
-                <p>{currentSpread.today.synthesis}</p>
-              </div>
-            )}
-            
+
             {/* Action buttons */}
-            {currentSpread.today.status !== 'complete' && (
-              <div class="practice-actions">
-                <a href={`/practice/session/${currentSpread.today.date}`} class="btn btn-primary">
-                  Start Chat Session
-                </a>
-                <a href={`/practice/${currentSpread.today.date}`} class="btn">
-                  View Practice
-                </a>
-              </div>
-            )}
+            <div class="practice-actions">
+              <a href={`/practice/session/${currentEntry.entry_id}`} class="btn btn-primary">
+                Start Chat Session
+              </a>
+              <a href={`/practice/${currentEntry.entry_id}`} class="btn">
+                {entryActionLabel(currentEntry.status)} Practice
+              </a>
+            </div>
           </section>
         ) : (
           <section class="begin-today">
-            <h2>Begin Today's Practice</h2>
-            <p>Start your daily entry to receive today's interpretations and introspection questions.</p>
+            <h2>Cycle Complete</h2>
+            <p>All 7 planetary entries for this cycle have been completed.</p>
             <div class="begin-actions">
-              <a href={`/practice/session/${todayDate}`} class="btn btn-primary">Start Chat Session</a>
-              <a href={`/practice/${todayDate}`} class="btn">View Practice Page</a>
+              <a href={`/history/week/${activeCycle.cycle_id}`} class="btn btn-primary">View Cycle</a>
+              <a href="/practice/new-week" class="btn">Begin New Cycle</a>
             </div>
           </section>
         )}
@@ -198,7 +154,7 @@ const todayDate = new Date().toISOString().split('T')[0];
     flex-direction: column;
     gap: var(--space-2xl);
   }
-  
+
   .section-header {
     display: flex;
     align-items: center;
@@ -207,18 +163,18 @@ const todayDate = new Date().toISOString().split('T')[0];
     flex-wrap: wrap;
     gap: var(--space-md);
   }
-  
+
   .week-progress {
     display: flex;
     align-items: center;
     gap: var(--space-md);
   }
-  
+
   .progress-text {
     color: var(--color-text-muted);
     font-size: 0.9rem;
   }
-  
+
   .progress-bar {
     width: 120px;
     height: 6px;
@@ -226,29 +182,24 @@ const todayDate = new Date().toISOString().split('T')[0];
     border-radius: 3px;
     overflow: hidden;
   }
-  
+
   .progress-fill {
     height: 100%;
     background: var(--color-gold);
     transition: width 0.3s ease;
   }
-  
-  /* Card spreads */
-  .planetary-spread,
-  .domain-spread {
+
+  /* Card spread */
+  .planetary-spread {
     margin-bottom: var(--space-xl);
   }
-  
+
   .card-row {
     display: grid;
     grid-template-columns: repeat(7, 1fr);
     gap: var(--space-sm);
   }
-  
-  .card-row.domains {
-    grid-template-columns: repeat(4, 1fr);
-  }
-  
+
   .spread-card {
     background: var(--color-bg-card);
     border: 1px solid var(--color-border);
@@ -260,32 +211,34 @@ const todayDate = new Date().toISOString().split('T')[0];
     gap: var(--space-xs);
     transition: all 0.2s ease;
   }
-  
+
   .spread-card.is-today {
     border-color: var(--color-gold);
     box-shadow: 0 0 12px rgba(201, 162, 39, 0.2);
   }
-  
-  .spread-card .card-day,
-  .spread-card .card-domain {
+
+  .spread-card.status-card-complete {
+    opacity: 0.6;
+  }
+
+  .spread-card .card-day {
     font-family: var(--font-display);
     font-size: 0.75rem;
     text-transform: uppercase;
     letter-spacing: 0.1em;
     color: var(--color-text-dim);
   }
-  
+
   .spread-card .card-name {
     font-size: 0.9rem;
     color: var(--color-text);
   }
-  
-  /* Domain colors */
-  .spread-card.domain-body { border-top: 3px solid var(--color-accent-body); }
-  .spread-card.domain-mind { border-top: 3px solid var(--color-accent-mind); }
-  .spread-card.domain-heart { border-top: 3px solid var(--color-accent-heart); }
-  .spread-card.domain-spirit { border-top: 3px solid var(--color-accent-spirit); }
-  
+
+  .spread-card .card-status-icon {
+    font-size: 0.75rem;
+    color: var(--color-accent-body);
+  }
+
   /* Today's practice */
   .today-practice {
     background: var(--color-bg-elevated);
@@ -293,17 +246,17 @@ const todayDate = new Date().toISOString().split('T')[0];
     border-radius: var(--card-radius);
     padding: var(--space-xl);
   }
-  
+
   .today-cards {
     margin-bottom: var(--space-xl);
   }
-  
+
   .planetary-focus {
     display: flex;
     flex-direction: column;
     gap: var(--space-xs);
   }
-  
+
   .planetary-focus .label {
     font-family: var(--font-display);
     font-size: 0.8rem;
@@ -311,123 +264,46 @@ const todayDate = new Date().toISOString().split('T')[0];
     letter-spacing: 0.1em;
     color: var(--color-text-dim);
   }
-  
+
   .planetary-focus .value {
     font-size: 1.25rem;
     color: var(--color-gold);
   }
-  
-  /* Interpretations grid */
-  .interpretations-grid {
-    display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
-    gap: var(--space-md);
-    margin-bottom: var(--space-xl);
-  }
-  
-  .interpretation-card {
-    background: var(--color-bg-card);
-    border: 1px solid var(--color-border);
-    border-radius: var(--card-radius);
-    padding: var(--space-md);
-    border-left: 4px solid var(--domain-color, var(--color-border));
-  }
-  
-  .interpretation-card.domain-body { --domain-color: var(--color-accent-body); }
-  .interpretation-card.domain-mind { --domain-color: var(--color-accent-mind); }
-  .interpretation-card.domain-heart { --domain-color: var(--color-accent-heart); }
-  .interpretation-card.domain-spirit { --domain-color: var(--color-accent-spirit); }
-  
-  .interp-header {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    margin-bottom: var(--space-sm);
-  }
-  
-  .interp-domain {
-    font-family: var(--font-display);
-    font-size: 0.9rem;
-    color: var(--domain-color);
-  }
-  
-  .interp-status {
+
+  /* Status badge */
+  .status-badge {
     font-size: 0.75rem;
     padding: 2px 8px;
     border-radius: 4px;
     text-transform: uppercase;
     letter-spacing: 0.05em;
-  }
-  
-  .status-badge,
-  .interp-status {
     background: var(--color-bg);
     color: var(--color-text-muted);
   }
-  
+
   .status-active,
-  .status-ready {
+  .status-available {
     background: rgba(201, 162, 39, 0.2);
     color: var(--color-gold);
   }
-  
+
   .status-complete {
     background: rgba(124, 152, 133, 0.2);
     color: var(--color-accent-body);
   }
-  
-  .interp-question {
-    display: flex;
-    flex-direction: column;
-    gap: var(--space-sm);
+
+  .status-integrating {
+    background: rgba(100, 120, 200, 0.2);
+    color: #8899dd;
   }
-  
-  .interp-question p {
-    font-style: italic;
-    color: var(--color-text-muted);
-    font-size: 0.95rem;
-    margin: 0;
-  }
-  
-  .interp-complete,
-  .interp-waiting {
-    display: flex;
-    align-items: center;
-    gap: var(--space-sm);
-    color: var(--color-text-dim);
-    font-size: 0.9rem;
-  }
-  
-  .checkmark {
-    color: var(--color-accent-body);
-  }
-  
-  /* Daily synthesis */
-  .daily-synthesis {
-    background: var(--color-bg-card);
-    border-radius: var(--card-radius);
-    padding: var(--space-lg);
-    margin-bottom: var(--space-lg);
-  }
-  
-  .daily-synthesis h3 {
-    font-size: 1rem;
-    margin-bottom: var(--space-sm);
-  }
-  
-  .daily-synthesis p {
-    margin: 0;
-    font-style: italic;
-    color: var(--color-text-muted);
-  }
-  
+
   /* Actions */
   .practice-actions {
     display: flex;
     gap: var(--space-md);
   }
-  
-  /* Begin today section */
+
+  /* Begin today / cycle complete section */
   .begin-today {
     text-align: center;
     padding: var(--space-2xl);
@@ -435,7 +311,7 @@ const todayDate = new Date().toISOString().split('T')[0];
     border: 1px dashed var(--color-border);
     border-radius: var(--card-radius);
   }
-  
+
   .begin-today p {
     color: var(--color-text-muted);
     margin-bottom: var(--space-lg);
@@ -446,38 +322,40 @@ const todayDate = new Date().toISOString().split('T')[0];
     gap: var(--space-md);
     justify-content: center;
   }
-  
+
   /* Error/empty states */
   .error-state,
   .empty-state {
     text-align: center;
     padding: var(--space-2xl);
   }
-  
+
   .error-state .hint {
     color: var(--color-text-dim);
     font-size: 0.9rem;
   }
-  
+
+  .empty-icon {
+    font-size: 2rem;
+    margin-bottom: var(--space-md);
+    color: var(--color-gold);
+  }
+
   /* Responsive */
   @media (max-width: 768px) {
     .card-row {
       grid-template-columns: repeat(4, 1fr);
     }
-    
-    .card-row.domains {
-      grid-template-columns: repeat(2, 1fr);
-    }
-    
+
     .spread-card {
       padding: var(--space-sm);
     }
-    
+
     .spread-card .card-name {
       font-size: 0.8rem;
     }
   }
-  
+
   @media (max-width: 480px) {
     .card-row {
       grid-template-columns: repeat(2, 1fr);

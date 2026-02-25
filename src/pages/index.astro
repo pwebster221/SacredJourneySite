@@ -7,6 +7,7 @@
  */
 import Layout from '../layouts/Layout.astro';
 import { sacredJourney } from '../lib/sacred-journey';
+import type { EntryStatus } from '../lib/sacred-journey';
 
 // Fetch active cycle and progress from V2 API
 let activeCycle = null;
@@ -31,10 +32,11 @@ const PLANET_SEQUENCE = ['Sun', 'Moon', 'Mars', 'Mercury', 'Jupiter', 'Venus', '
 // Count completed entries
 const completedCount = progress?.entries.filter(e => e.status === 'complete').length ?? 0;
 
-// Format cycle start date from ISO timestamp
+// Format cycle start date from ISO timestamp, avoiding UTC day boundary shift
 function formatCycleDate(isoString: string): string {
-  const date = new Date(isoString);
-  return date.toLocaleDateString('en-US', {
+  const datePart = isoString.split('T')[0];
+  const [year, month, day] = datePart.split('-').map(Number);
+  return new Date(year, month - 1, day).toLocaleDateString('en-US', {
     weekday: 'long',
     month: 'long',
     day: 'numeric',
@@ -42,7 +44,7 @@ function formatCycleDate(isoString: string): string {
 }
 
 // Map entry status to a human-readable action label
-function entryActionLabel(status: string): string {
+function entryActionLabel(status: EntryStatus): string {
   switch (status) {
     case 'available': return 'Begin';
     case 'active': return 'Continue';
@@ -138,7 +140,7 @@ function entryActionLabel(status: string): string {
             <h2>Cycle Complete</h2>
             <p>All 7 planetary entries for this cycle have been completed.</p>
             <div class="begin-actions">
-              <a href={`/history/week/${activeCycle.cycle_id}`} class="btn btn-primary">View Cycle</a>
+              <a href="/history" class="btn btn-primary">View Archive</a>
               <a href="/practice/new-week" class="btn">Begin New Cycle</a>
             </div>
           </section>

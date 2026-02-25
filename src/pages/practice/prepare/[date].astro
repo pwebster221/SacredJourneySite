@@ -33,11 +33,11 @@ if (Astro.request.method === 'POST') {
     const domain = formData.get('domain') as string;
 
     if (domain === 'all') {
-      // Fetch current status to find pending domains
+      // Fetch current status to find unprepared domains (no record yet)
       const currentStatus = await sacredJourney.getInterpretationsStatus(entryId);
       for (const d of DOMAINS) {
         const existing = currentStatus.interpretations.find(i => i.domain === d);
-        if (!existing || existing.status === 'pending') {
+        if (!existing) {
           await sacredJourney.prepareInterpretation(entryId, d as Domain);
         }
       }
@@ -73,13 +73,14 @@ const interpretations = interps?.interpretations ?? [];
 const allComplete = interps?.all_complete ?? false;
 const completionCount = interps?.completion_count ?? 0;
 
-// Count domains that still need preparation (pending with no responded/evaluated/complete)
-const pendingDomains = DOMAINS.filter(d => {
+// Count domains that have NOT been prepared yet (no interpretation record exists)
+// V2 "pending" status means "prepared, awaiting user response" — NOT "needs preparation"
+const unpreparedDomains = DOMAINS.filter(d => {
   const existing = interpretations.find(i => i.domain === d);
-  return !existing || existing.status === 'pending';
+  return !existing;
 });
-const pendingCount = pendingDomains.length;
-const allPrepared = pendingCount === 0;
+const unpreparedCount = unpreparedDomains.length;
+const allPrepared = unpreparedCount === 0;
 
 // Status label for display
 function statusLabel(status: string): string {
@@ -142,7 +143,7 @@ function statusLabel(status: string): string {
       <div class="preparation-content">
         <div class="action-bar">
           <div class="status-summary">
-            <span class="needs-prep">{pendingCount} domain{pendingCount !== 1 ? 's' : ''} need{pendingCount === 1 ? 's' : ''} preparation</span>
+            <span class="needs-prep">{unpreparedCount} domain{unpreparedCount !== 1 ? 's' : ''} need{unpreparedCount === 1 ? 's' : ''} preparation</span>
             {completionCount > 0 && (
               <span class="completion-note">&nbsp;· {completionCount} complete</span>
             )}
@@ -158,13 +159,13 @@ function statusLabel(status: string): string {
         <div class="interpretations-list">
           {DOMAINS.map((domain) => {
             const interp = interpretations.find(i => i.domain === domain);
-            const status = interp?.status ?? 'pending';
-            const isPending = status === 'pending';
+            const status = interp?.status ?? 'not_created';
+            const needsPreparation = !interp;
             const domainCard = domainCards[domain] || '';
 
             return (
               <div
-                class={`interpretation-card domain-${domain.toLowerCase()} ${!isPending ? 'is-done' : ''}`}
+                class={`interpretation-card domain-${domain.toLowerCase()} ${!needsPreparation ? 'is-done' : ''}`}
                 data-domain={domain}
               >
                 <div class="card-header">
@@ -180,7 +181,7 @@ function statusLabel(status: string): string {
                 </div>
 
                 <div class="card-body">
-                  {isPending ? (
+                  {needsPreparation ? (
                     <div class="pending-content">
                       <p class="pending-text">
                         This domain interpretation has not been prepared yet.
@@ -197,6 +198,14 @@ function statusLabel(status: string): string {
                     </div>
                   ) : (
                     <div class="done-content">
+                      {status === 'pending' && interp?.interpretation_id && (
+                        <div class="prepared-actions">
+                          <p class="status-text">Prepared — ready for your response.</p>
+                          <a href={`/practice/respond/${interp.interpretation_id}?entry=${entryId}&domain=${domain}`} class="btn btn-primary btn-sm">
+                            Respond to Interpretation
+                          </a>
+                        </div>
+                      )}
                       {status === 'responded' && (
                         <p class="status-text">Response submitted — awaiting evaluation.</p>
                       )}
@@ -207,13 +216,6 @@ function statusLabel(status: string): string {
                         <div class="complete-indicator">
                           <span class="checkmark">&#10003;</span>
                           <span>Complete</span>
-                        </div>
-                      )}
-                      {status === 'pending' && interp?.interpretation_id && (
-                        <div class="prepared-actions">
-                          <a href={`/practice/respond/${interp.interpretation_id}?entry=${entryId}&domain=${domain}`} class="btn btn-sm">
-                            Respond to Interpretation
-                          </a>
                         </div>
                       )}
                       {(status === 'responded' || status === 'evaluated') && interp?.interpretation_id && (

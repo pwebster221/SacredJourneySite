@@ -128,7 +128,7 @@ function statusLabel(status: string): string {
               <span class="domain-label">{interp.domain}</span>
               <span class={`status-badge status-${interp.status}`}>{statusLabel(interp.status)}</span>
               {interp.status === 'pending' && interp.interpretation_id && (
-                <a href={`/practice/respond/${interp.interpretation_id}`} class="btn btn-sm">Respond</a>
+                <a href={`/practice/respond/${interp.interpretation_id}?entry=${entryId}&domain=${interp.domain}`} class="btn btn-sm">Respond</a>
               )}
             </div>
           ))}
@@ -211,14 +211,14 @@ function statusLabel(status: string): string {
                       )}
                       {status === 'pending' && interp?.interpretation_id && (
                         <div class="prepared-actions">
-                          <a href={`/practice/respond/${interp.interpretation_id}`} class="btn btn-sm">
+                          <a href={`/practice/respond/${interp.interpretation_id}?entry=${entryId}&domain=${domain}`} class="btn btn-sm">
                             Respond to Interpretation
                           </a>
                         </div>
                       )}
                       {(status === 'responded' || status === 'evaluated') && interp?.interpretation_id && (
                         <div class="prepared-actions">
-                          <a href={`/practice/respond/${interp.interpretation_id}`} class="btn btn-sm">
+                          <a href={`/practice/respond/${interp.interpretation_id}?entry=${entryId}&domain=${domain}`} class="btn btn-sm">
                             View Response
                           </a>
                         </div>

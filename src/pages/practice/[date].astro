@@ -198,7 +198,7 @@ function entryStatusLabel(status: string): string {
                       <a href={`/practice/prepare/${entryId}`} class="btn btn-sm">Prepare</a>
                     )}
                     {interp.status === 'responded' && (
-                      <a href={`/practice/respond/${interp.interpretation_id}`} class="btn btn-sm">View</a>
+                      <a href={`/practice/respond/${interp.interpretation_id}?entry=${entryId}&domain=${interp.domain}`} class="btn btn-sm">View</a>
                     )}
                   </div>
                 );

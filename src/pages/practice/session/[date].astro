@@ -270,7 +270,7 @@ function statusIcon(status: string): string {
                         <div class="responded-message">
                           <p>Response submitted — awaiting evaluation.</p>
                           {interpId && (
-                            <a href={`/practice/respond/${interpId}`} class="btn btn-sm">View Response</a>
+                            <a href={`/practice/respond/${interpId}?entry=${entryId}&domain=${domain}`} class="btn btn-sm">View Response</a>
                           )}
                         </div>
                       )}

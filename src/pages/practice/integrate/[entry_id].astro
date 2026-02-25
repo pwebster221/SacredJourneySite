@@ -1,0 +1,255 @@
+---
+/**
+ * Integration Phase — add notes and advance entry to complete
+ *
+ * Handles the `integrating` entry state. After an entry is synthesized it
+ * moves to `integrating`. The user can add integration notes (reflections),
+ * then advance the entry to `complete`.
+ */
+import Layout from '../../../layouts/Layout.astro';
+import { sacredJourney } from '../../../lib/sacred-journey';
+
+const { entry_id } = Astro.params;
+
+let entry = null;
+let integration = null;
+let error = null;
+
+// Handle POST actions
+if (Astro.request.method === 'POST') {
+  const formData = await Astro.request.formData();
+  const action = formData.get('action') as string;
+
+  try {
+    if (action === 'add_note') {
+      const content = formData.get('content') as string;
+      await sacredJourney.addIntegrationNotes(entry_id!, content);
+      return Astro.redirect(`/practice/integrate/${entry_id}`);
+    }
+
+    if (action === 'advance') {
+      // advanceEntry returns the cycle info we need for redirect
+      const result = await sacredJourney.advanceEntry(entry_id!);
+      // Get entry data to find the cycle_id for redirect
+      const entryData = await sacredJourney.getEntry(entry_id!);
+      return Astro.redirect(`/practice/cycle/${entryData.cycle_id}`);
+    }
+  } catch (e) {
+    error = e instanceof Error ? e.message : 'Action failed';
+  }
+}
+
+// Load entry and integration data
+try {
+  entry = await sacredJourney.getEntry(entry_id!);
+  integration = await sacredJourney.getIntegrationStatus(entry_id!);
+} catch (e) {
+  error = error || (e instanceof Error ? e.message : 'Failed to load integration data');
+}
+
+// Planet display info
+const PLANET_SYMBOLS: Record<string, string> = {
+  Sun: '\u2609', Moon: '\u263D', Mars: '\u2642', Mercury: '\u263F',
+  Jupiter: '\u2643', Venus: '\u2640', Saturn: '\u2644',
+};
+---
+
+<Layout title={`Integration — ${entry?.planet ?? 'Entry'} — Paths of Reverence`}>
+  <div class="integrate-page">
+    {error && !entry ? (
+      <div class="error-state">
+        <h2>Error</h2>
+        <p>{error}</p>
+        <a href="/" class="btn">Return Home</a>
+      </div>
+    ) : entry ? (
+      <>
+        <header class="integrate-header">
+          <a href={`/practice/cycle/${entry.cycle_id}`} class="back-link">&larr; Back to Cycle</a>
+          <h1>
+            <span class="planet-symbol">{PLANET_SYMBOLS[entry.planet] ?? '?'}</span>
+            {entry.planet} — Integration
+          </h1>
+          <p class="subtitle">Entry {entry.sequence} of 7 &bull; {entry.planetary_card}</p>
+          {error && <p class="error-inline">{error}</p>}
+        </header>
+
+        <section class="integration-notes">
+          <h2>Reflection Notes ({integration?.notes_count ?? 0})</h2>
+
+          {integration?.notes?.length ? (
+            <ul class="notes-list">
+              {integration.notes.map((note) => (
+                <li class="note-item">
+                  <time class="note-time">{new Date(note.timestamp).toLocaleString()}</time>
+                  <p class="note-content">{note.content}</p>
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <p class="empty-notes">No integration notes yet. Take a moment to reflect on your experience.</p>
+          )}
+
+          <form method="POST" class="note-form">
+            <input type="hidden" name="action" value="add_note" />
+            <textarea
+              name="content"
+              placeholder="What are you noticing as this entry integrates? How do the themes connect to your daily experience?"
+              required
+              rows="4"
+            ></textarea>
+            <button type="submit" class="btn btn-primary">Add Note</button>
+          </form>
+        </section>
+
+        <section class="advance-section">
+          <h2>Ready to Advance?</h2>
+          <p>When you feel this entry has been fully integrated, advance to the next planet in your cycle.</p>
+          <form method="POST">
+            <input type="hidden" name="action" value="advance" />
+            <button type="submit" class="btn btn-primary">Complete Integration &amp; Advance</button>
+          </form>
+        </section>
+      </>
+    ) : null}
+  </div>
+</Layout>
+
+<style>
+  .integrate-page {
+    max-width: 700px;
+    margin: 0 auto;
+  }
+
+  .back-link {
+    display: inline-block;
+    font-size: 0.9rem;
+    color: var(--color-text-muted);
+    margin-bottom: var(--space-md);
+  }
+
+  .back-link:hover {
+    color: var(--color-gold);
+  }
+
+  .integrate-header {
+    margin-bottom: var(--space-2xl);
+  }
+
+  .integrate-header h1 {
+    display: flex;
+    align-items: center;
+    gap: var(--space-sm);
+    margin-bottom: var(--space-xs);
+  }
+
+  .planet-symbol {
+    font-size: 1.5em;
+  }
+
+  .subtitle {
+    color: var(--color-text-muted);
+    font-size: 0.9rem;
+  }
+
+  .error-inline {
+    color: #f66;
+    margin-top: var(--space-sm);
+  }
+
+  .integration-notes {
+    margin-bottom: var(--space-2xl);
+  }
+
+  .notes-list {
+    list-style: none;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-md);
+    margin-bottom: var(--space-lg);
+  }
+
+  .note-item {
+    padding: var(--space-md);
+    background: var(--color-bg-card);
+    border-radius: var(--card-radius);
+    border: 1px solid var(--color-border);
+  }
+
+  .note-time {
+    font-size: 0.75rem;
+    color: var(--color-text-muted);
+    display: block;
+    margin-bottom: var(--space-xs);
+  }
+
+  .note-content {
+    margin: 0;
+    white-space: pre-wrap;
+  }
+
+  .empty-notes {
+    color: var(--color-text-muted);
+    font-style: italic;
+    margin-bottom: var(--space-lg);
+  }
+
+  .note-form {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-sm);
+  }
+
+  .note-form textarea {
+    width: 100%;
+    padding: var(--space-md);
+    background: var(--color-bg-card);
+    border: 1px solid var(--color-border);
+    border-radius: var(--card-radius);
+    color: var(--color-text);
+    font-family: var(--font-body);
+    font-size: 1rem;
+    line-height: 1.6;
+    resize: vertical;
+  }
+
+  .note-form textarea:focus {
+    outline: none;
+    border-color: var(--color-gold);
+  }
+
+  .note-form textarea::placeholder {
+    color: var(--color-text-dim);
+  }
+
+  .advance-section {
+    padding: var(--space-lg);
+    background: var(--color-bg-elevated);
+    border-radius: var(--card-radius);
+    border: 1px solid var(--color-border);
+    text-align: center;
+  }
+
+  .advance-section p {
+    color: var(--color-text-muted);
+    margin-bottom: var(--space-md);
+  }
+
+  .error-state {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    text-align: center;
+    padding: var(--space-2xl);
+    background: var(--color-bg-elevated);
+    border: 1px dashed var(--color-border);
+    border-radius: var(--card-radius);
+  }
+
+  @media (max-width: 600px) {
+    .integrate-header h1 {
+      font-size: 1.5rem;
+    }
+  }
+</style>

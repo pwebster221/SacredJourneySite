@@ -1,627 +1,318 @@
 ---
 /**
- * Daily Practice Page
- * 
- * Shows the day's spread and interpretation status.
- * Works for both current week entries AND archived week entries.
- * Fetches entry data client-side to handle all cases.
+ * Entry Detail Page
+ *
+ * Shows a single progression entry: planetary card, domain cards,
+ * interpretation statuses, and action links.
+ *
+ * The [date] param now receives an entry_id UUID (V2).
+ * File name kept as [date].astro for route compatibility.
  */
 import Layout from '../../layouts/Layout.astro';
 import { sacredJourney } from '../../lib/sacred-journey';
+import type {
+  ProgressionEntryResponse,
+  EntryContextResponse,
+  AllInterpretationsStatusResponse,
+} from '../../lib/sacred-journey';
+import { DOMAINS } from '../../lib/domain-utils';
 
-const { date } = Astro.params;
+const { date: entryId } = Astro.params;
 
-// Validate date format
-const dateRegex = /^\d{4}-\d{2}-\d{2}$/;
-if (!date || !dateRegex.test(date)) {
+// Validate that the param looks like a UUID
+const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+if (!entryId || !uuidRegex.test(entryId)) {
   return Astro.redirect('/');
 }
 
-let context = null;
-let error = null;
-let weeklyReading = null;
-let canBeginEntry = false;
+let entry: ProgressionEntryResponse | null = null;
+let context: EntryContextResponse | null = null;
+let interps: AllInterpretationsStatusResponse | null = null;
+let error: string | null = null;
 
-// Try to get interpretation context for this date (works for any week)
 try {
-  context = await sacredJourney.getInterpretationContext(date);
+  entry = await sacredJourney.getEntry(entryId);
+  context = await sacredJourney.getEntryContext(entryId);
+  interps = await sacredJourney.getInterpretationsStatus(entryId);
 } catch (e) {
-  const msg = e instanceof Error ? e.message : '';
-  // 404 means no entry yet - check if date is within a weekly reading
-  if (msg.includes('404') || msg.includes('No daily entry')) {
-    // Calculate the Sunday that starts this date's week
-    const dateObj = new Date(date + 'T12:00:00');
-    const dayOfWeek = dateObj.getDay(); // 0 = Sunday
-    const weekStart = new Date(dateObj);
-    weekStart.setDate(dateObj.getDate() - dayOfWeek);
-    const weekStartStr = weekStart.toISOString().split('T')[0];
-    
-    // Check if a weekly reading exists for this week
-    try {
-      weeklyReading = await sacredJourney.getWeeklyProgress(weekStartStr);
-      canBeginEntry = true; // Week exists, can begin entry
-    } catch (weekErr) {
-      // No weekly reading exists for this date
-      canBeginEntry = false;
-    }
-  } else {
-    error = msg || 'Failed to load interpretation context';
+  error = e instanceof Error ? e.message : 'Failed to load entry';
+}
+
+// Derive display values
+const planetName = entry?.planet ?? '';
+const sequence = entry?.sequence ?? 0;
+const entryStatus = entry?.status ?? 'available';
+const planetaryCard = entry?.planetary_card ?? '';
+const domainCards = entry?.domain_cards ?? {};
+const cycleId = entry?.cycle_id ?? context?.cycle_id ?? '';
+const allComplete = interps?.all_complete ?? false;
+const completionCount = interps?.completion_count ?? 0;
+const interpretations = interps?.interpretations ?? [];
+const previousSynthesis = context?.previous_entry?.synthesis ?? null;
+const samePlanetSynthesis = context?.same_planet_previous_cycle?.synthesis ?? null;
+
+// Status label mapping
+function statusLabel(status: string): string {
+  switch (status) {
+    case 'pending': return 'pending';
+    case 'responded': return 'responded';
+    case 'evaluated': return 'evaluated';
+    case 'complete': return 'complete';
+    default: return status;
   }
 }
 
-// Parse date string as local date (avoid timezone issues)
-const parseLocalDate = (dateStr: string) => {
-  const [year, month, day] = dateStr.split('-').map(Number);
-  return new Date(year, month - 1, day);
-};
-
-const formatDate = (dateStr: string) => {
-  return parseLocalDate(dateStr).toLocaleDateString('en-US', {
-    weekday: 'long',
-    month: 'long',
-    day: 'numeric',
-  });
-};
-
-// Check if entry exists (context has entry_id means entry was created)
-const entryExists = context && context.entry_id;
-
-// Get the planetary card for this date from the weekly reading if available
-const getDayPlanetaryCard = () => {
-  if (!weeklyReading) return null;
-  const dateObj = new Date(date + 'T12:00:00');
-  const dayName = dateObj.toLocaleDateString('en-US', { weekday: 'long' });
-  // WeeklyReading doesn't include planetary_cards in progress endpoint
-  // We'd need to fetch the full reading, but for now just show the day
-  return null;
-};
+// Entry status badge
+function entryStatusLabel(status: string): string {
+  switch (status) {
+    case 'available': return 'Available';
+    case 'active': return 'Active';
+    case 'integrating': return 'Integrating';
+    case 'complete': return 'Complete';
+    default: return status;
+  }
+}
 ---
 
-<Layout title={`Practice - ${formatDate(date)} - Paths of Reverence`}>
-  <div class="daily-practice-page" data-date={date} data-entry-exists={entryExists ? 'true' : 'false'}>
+<Layout title={`${planetName || 'Entry'} — Entry ${sequence} — Paths of Reverence`}>
+  <div class="entry-detail-page">
     <header class="page-header">
-      <a href="/history" class="back-link">← Back to Archive</a>
-      <h1>{formatDate(date)}</h1>
-      {context?.planetary_ruler && (
-        <p class="planetary-ruler">Planetary Card: {context.planetary_ruler}</p>
+      {cycleId ? (
+        <a href={`/practice/cycle/${cycleId}`} class="back-link">&larr; Back to Cycle</a>
+      ) : (
+        <a href="/" class="back-link">&larr; Home</a>
       )}
+      <h1>{planetName} &mdash; Entry {sequence} of 7</h1>
+      <div class="header-meta">
+        <span class={`entry-status-badge status-${entryStatus}`}>{entryStatusLabel(entryStatus)}</span>
+        {planetaryCard && (
+          <span class="planetary-card-name">{planetaryCard}</span>
+        )}
+      </div>
     </header>
-    
+
     {error ? (
       <div class="error-state">
         <h2>Unable to Load</h2>
         <p>{error}</p>
-        <a href="/history" class="btn">Back to Archive</a>
+        <a href="/" class="btn">Home</a>
       </div>
-    ) : entryExists ? (
-      <!-- Entry exists - show interpretations (loaded client-side) -->
-      <div class="entry-content" id="entry-content">
-        <div class="loading-inline">
-          <div class="spinner-small"></div>
-          <span>Loading interpretations...</span>
-        </div>
+    ) : !entry ? (
+      <div class="error-state">
+        <h2>Entry Not Found</h2>
+        <p>This entry could not be found.</p>
+        <a href="/" class="btn">Home</a>
       </div>
-    ) : (context || canBeginEntry) ? (
-      <!-- Context exists OR week exists - show preview and begin button -->
-      <div class="begin-entry-state">
-        {context && Object.keys(context.domain_cards || {}).length > 0 && (
-          <section class="cards-preview">
-            <h2>Domain Cards for This Day</h2>
+    ) : (
+      <div class="entry-content">
+        {/* Planetary card highlight */}
+        {planetaryCard && (
+          <section class="cards-section">
+            <div class="planetary-focus">
+              <span class="label">Planetary Card</span>
+              <span class="card-name">{planetaryCard}</span>
+            </div>
+          </section>
+        )}
+
+        {/* Domain cards */}
+        {Object.keys(domainCards).length > 0 && (
+          <section class="cards-section">
             <div class="domain-cards">
-              {Object.entries(context.domain_cards).map(([domain, card]) => (
-                <div class={`domain-card domain-${domain.toLowerCase()}`}>
-                  <span class="domain-label">{domain}</span>
-                  <span class="card-name">{card}</span>
-                </div>
+              {DOMAINS.map((domain) => (
+                domainCards[domain] ? (
+                  <div class={`domain-card domain-${domain.toLowerCase()}`}>
+                    <span class="domain-label">{domain}</span>
+                    <span class="card-name">{domainCards[domain]}</span>
+                  </div>
+                ) : null
               ))}
             </div>
           </section>
         )}
-        
-        {context?.yesterday_synthesis && (
-          <section class="context-section">
-            <h2>Yesterday's Synthesis</h2>
-            <blockquote class="yesterday-synthesis">{context.yesterday_synthesis}</blockquote>
-          </section>
-        )}
-        
-        {weeklyReading && (
-          <section class="week-info">
-            <p class="week-progress">Week Progress: {weeklyReading.days_complete}/7 days complete</p>
-          </section>
-        )}
-        
-        <div class="begin-prompt">
-          <p>Ready to begin this day's practice?</p>
-          <button class="btn btn-primary" id="begin-entry-btn">Begin Daily Entry</button>
-        </div>
 
-        <div class="session-prompt" style="margin-top: var(--space-lg); text-align: center;">
-          <p class="hint">Or start a conversational exploration:</p>
-          <a href={`/practice/session/${date}`} class="btn">Open Chat Session</a>
-        </div>
-      </div>
-    ) : (
-      <!-- No context at all - date has no associated weekly reading -->
-      <div class="no-entry-state">
-        <h2>No Reading Found</h2>
-        <p>This date doesn't have an associated weekly reading.</p>
-        <div class="action-links">
-          <a href="/history" class="btn">View Archive</a>
-          <a href="/practice/new-week" class="btn btn-primary">Begin New Week</a>
-        </div>
+        {/* Previous entry synthesis */}
+        {previousSynthesis && (
+          <section class="context-section">
+            <h2>Previous Entry Synthesis</h2>
+            <blockquote class="synthesis-quote">{previousSynthesis}</blockquote>
+          </section>
+        )}
+
+        {/* Same planet previous cycle synthesis */}
+        {samePlanetSynthesis && (
+          <section class="context-section">
+            <h2>Same Planet — Previous Cycle</h2>
+            <blockquote class="synthesis-quote">{samePlanetSynthesis}</blockquote>
+          </section>
+        )}
+
+        {/* Interpretations section */}
+        <section class="interpretations-section">
+          <h2>Interpretations</h2>
+          <p class="completion-summary">{completionCount} of {interpretations.length} complete</p>
+
+          {allComplete ? (
+            <div class="completed-badge">
+              <span class="checkmark">&#10003;</span>
+              <span>All {interpretations.length} domain interpretations complete</span>
+            </div>
+          ) : interpretations.length === 0 ? (
+            <div class="pending-state">
+              <div class="pending-icon">&#9675;</div>
+              <h3>No Interpretations Yet</h3>
+              <p>This entry's interpretations have not been started.</p>
+              <div class="action-links">
+                <a href={`/practice/session/${entryId}`} class="btn btn-primary">Start Chat Session</a>
+                <a href={`/practice/prepare/${entryId}`} class="btn">Manual Preparation</a>
+              </div>
+            </div>
+          ) : (
+            <div class="interpretations-grid">
+              {interpretations.map((interp) => {
+                const statusClass = `status-${interp.status}`;
+                return (
+                  <div class={`interpretation-card domain-${interp.domain.toLowerCase()} ${statusClass}`}>
+                    <div class="interp-header">
+                      <span class="domain-name">{interp.domain}</span>
+                      <span class={`status-badge ${statusClass}`}>{statusLabel(interp.status)}</span>
+                    </div>
+                    <div class="interp-content">
+                      {interp.status === 'pending' && (
+                        <p class="awaiting">Awaiting preparation...</p>
+                      )}
+                      {interp.status === 'responded' && (
+                        <p class="awaiting">Awaiting evaluation...</p>
+                      )}
+                      {interp.status === 'evaluated' && (
+                        <p class="awaiting">Evaluated — awaiting completion</p>
+                      )}
+                      {interp.status === 'complete' && (
+                        <div class="complete-indicator">
+                          <span class="checkmark">&#10003;</span>
+                          <span>Complete</span>
+                        </div>
+                      )}
+                    </div>
+                    {interp.status === 'pending' && (
+                      <a href={`/practice/prepare/${entryId}`} class="btn btn-sm">Prepare</a>
+                    )}
+                    {interp.status === 'responded' && (
+                      <a href={`/practice/respond/${interp.interpretation_id}`} class="btn btn-sm">View</a>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          )}
+
+          {/* Action links when there are pending interpretations */}
+          {interpretations.length > 0 && !allComplete && (
+            <div class="prepare-actions">
+              <a href={`/practice/session/${entryId}`} class="btn btn-primary">Open Chat Session</a>
+              <a href={`/practice/prepare/${entryId}`} class="btn">Manual Preparation</a>
+            </div>
+          )}
+        </section>
+
+        {/* Navigation */}
+        <section class="entry-navigation">
+          {allComplete && entryStatus === 'complete' ? (
+            <div class="nav-status">
+              <span class="status-complete">&#10022; Entry Complete &#10022;</span>
+            </div>
+          ) : entryStatus === 'integrating' ? (
+            <div class="nav-status">
+              <span class="status-integrating">Integration Phase</span>
+            </div>
+          ) : null}
+          <div class="nav-actions">
+            {cycleId && (
+              <a href={`/practice/cycle/${cycleId}`} class="btn">Back to Cycle</a>
+            )}
+            <a href={`/practice/session/${entryId}`} class="btn btn-primary">
+              {entryStatus === 'complete' ? 'Revisit Session' : 'Open Chat Session'}
+            </a>
+          </div>
+        </section>
       </div>
     )}
-    
-    <div class="loading-overlay" id="loading" style="display: none;">
-      <div class="spinner"></div>
-      <p id="loading-text">Creating daily entry...</p>
-    </div>
   </div>
 </Layout>
 
-<script>
-  // Use internal Tailscale URL for local dev, Funnel URL for production
-  const isLocalDev = window.location.hostname === 'localhost' || window.location.hostname.startsWith('100.');
-  const API_BASE = isLocalDev 
-    ? 'http://100.117.79.64:8000' 
-    : 'https://neo4jmiddleware.robin-alligator.ts.net';
-  
-  const page = document.querySelector('.daily-practice-page') as HTMLElement;
-  const date = page?.dataset.date;
-  const entryExists = page?.dataset.entryExists === 'true';
-  const beginBtn = document.getElementById('begin-entry-btn');
-  const loadingEl = document.getElementById('loading');
-  const loadingText = document.getElementById('loading-text');
-  const entryContent = document.getElementById('entry-content');
-
-  // If entry exists, load interpretations client-side
-  if (entryExists && entryContent) {
-    loadInterpretations();
-  }
-
-  async function loadInterpretations() {
-    console.log('[Sacred Journey] Loading interpretations for date:', date);
-    
-    try {
-      // First try to get from current spread (works if this is today's entry)
-      let interpretations = null;
-      let domainCards = null;
-      let planetaryCard = null;
-      let synthesis = null;
-
-      try {
-        console.log('[Sacred Journey] Fetching current spread...');
-        const spreadRes = await fetch(`${API_BASE}/sacred-journey/current-spread`);
-        console.log('[Sacred Journey] Current spread response:', spreadRes.status);
-        if (spreadRes.ok) {
-          const spread = await spreadRes.json();
-          console.log('[Sacred Journey] Current spread data:', spread);
-          if (spread.today?.date === date) {
-            console.log('[Sacred Journey] Found today in current spread');
-            interpretations = spread.today.interpretations;
-            domainCards = spread.today.domain_cards;
-            planetaryCard = spread.today.planetary_card;
-            synthesis = spread.today.synthesis;
-          }
-        }
-      } catch (e) {
-        console.log('[Sacred Journey] Current spread error:', e);
-        // Current spread not available, try pending interpretations
-      }
-
-      // If not in current spread, fetch pending interpretations for this date
-      if (!interpretations) {
-        console.log('[Sacred Journey] Fetching pending interpretations...');
-        const pendingRes = await fetch(`${API_BASE}/sacred-journey/interpretation/pending`);
-        console.log('[Sacred Journey] Pending response:', pendingRes.status);
-        if (pendingRes.ok) {
-          const pendingData = await pendingRes.json();
-          console.log('[Sacred Journey] Pending data:', pendingData);
-          // Filter to just this date
-          const dateInterps = (pendingData.pending || []).filter(
-            (i: any) => i.date === date
-          );
-          console.log('[Sacred Journey] Filtered for date:', dateInterps);
-          
-          if (dateInterps.length > 0) {
-            interpretations = dateInterps.map((i: any) => ({
-              interpretation_id: i.interpretation_id,
-              domain: i.domain,
-              status: 'ready',
-              introspection_question: i.introspection_question,
-            }));
-          }
-        }
-        
-        // Get domain cards from context
-        console.log('[Sacred Journey] Fetching context...');
-        const contextRes = await fetch(`${API_BASE}/sacred-journey/daily/${date}/context`);
-        console.log('[Sacred Journey] Context response:', contextRes.status);
-        if (contextRes.ok) {
-          const contextData = await contextRes.json();
-          console.log('[Sacred Journey] Context data:', contextData);
-          domainCards = contextData.domain_cards;
-          planetaryCard = contextData.planetary_ruler;
-        }
-        
-        // Try to get synthesis from history if we don't have it yet
-        if (!synthesis) {
-          console.log('[Sacred Journey] Fetching history for synthesis...');
-          const historyRes = await fetch(`${API_BASE}/sacred-journey/history?limit=30&include_entries=true`);
-          if (historyRes.ok) {
-            const historyData = await historyRes.json();
-            console.log('[Sacred Journey] History data received, entries:', historyData.recent_entries?.length);
-            // Find the entry matching this date
-            const matchingEntry = (historyData.recent_entries || []).find(
-              (e: any) => e.date === date
-            );
-            if (matchingEntry) {
-              console.log('[Sacred Journey] Found matching entry:', matchingEntry);
-              synthesis = matchingEntry.synthesis;
-              planetaryCard = planetaryCard || matchingEntry.planetary_card;
-            }
-          }
-        }
-      }
-      
-      console.log('[Sacred Journey] Final state:', { interpretations, domainCards, planetaryCard, synthesis });
-
-      // Render the content
-      if (interpretations && interpretations.length > 0) {
-        // Check if any are actionable (ready status with questions)
-        const hasReady = interpretations.some((i: any) => i.status === 'ready' && i.introspection_question);
-        const allPrepared = interpretations.every((i: any) => i.status === 'prepared');
-        const allComplete = interpretations.every((i: any) => i.status === 'complete');
-        
-        if (allComplete && synthesis) {
-          // Truly complete - has synthesis and all interpretations done
-          renderCompletedEntry(planetaryCard, domainCards, synthesis);
-        } else if (allPrepared) {
-          // All still in prepared state - need AI generation
-          renderPreparedState(planetaryCard, domainCards, interpretations);
-        } else {
-          renderEntry(planetaryCard, domainCards, interpretations, synthesis);
-        }
-      } else if (synthesis) {
-        // Entry has synthesis - it's complete
-        renderCompletedEntry(planetaryCard, domainCards, synthesis);
-      } else if (planetaryCard) {
-        // Entry exists (has planetary card) but no interpretations found via API
-        // This means interpretations are in 'prepared' status (not yet ready)
-        renderPreparedState(planetaryCard, domainCards, []);
-      } else {
-        // Entry exists but no interpretations yet - show message
-        entryContent!.innerHTML = `
-          <div class="info-state">
-            <h2>Entry Created</h2>
-            <p>This day's entry has been created. Interpretations may need to be prepared.</p>
-            <p class="hint">Check the Practice queue for pending items.</p>
-            <a href="/practice/pending" class="btn btn-primary">View Practice Queue</a>
-          </div>
-        `;
-      }
-
-    } catch (err) {
-      entryContent!.innerHTML = `
-        <div class="error-state">
-          <h2>Error Loading</h2>
-          <p>${err instanceof Error ? err.message : 'Failed to load entry data'}</p>
-          <button class="btn" onclick="window.location.reload()">Try Again</button>
-        </div>
-      `;
-    }
-  }
-
-  function renderCompletedEntry(planetaryCard: string | null, domainCards: Record<string, string> | null, synthesis: string | null) {
-    const domains = ['Body', 'Mind', 'Heart', 'Spirit'];
-    let html = '';
-    
-    // Cards section
-    if (planetaryCard) {
-      html += `
-        <section class="cards-section">
-          <div class="planetary-focus">
-            <span class="label">Planetary Card</span>
-            <span class="card-name">${planetaryCard}</span>
-          </div>
-        </section>
-      `;
-    }
-    
-    if (domainCards && Object.keys(domainCards).length > 0) {
-      html += '<section class="cards-section"><div class="domain-cards">';
-      for (const domain of domains) {
-        if (domainCards[domain]) {
-          html += `
-            <div class="domain-card domain-${domain.toLowerCase()}">
-              <span class="domain-label">${domain}</span>
-              <span class="card-name">${domainCards[domain]}</span>
-            </div>
-          `;
-        }
-      }
-      html += '</div></section>';
-    }
-    
-    // Completed interpretations indicator
-    html += `
-      <section class="interpretations-section">
-        <h2>Interpretations</h2>
-        <div class="completed-badge">
-          <span class="checkmark">✓</span>
-          <span>All 4 domain interpretations complete</span>
-        </div>
-      </section>
-    `;
-    
-    // Synthesis section
-    if (synthesis) {
-      html += `
-        <section class="synthesis-section">
-          <h2>Daily Synthesis</h2>
-          <div class="synthesis-content">${synthesis}</div>
-        </section>
-      `;
-    }
-    
-    // Calculate next day's date
-    const currentDate = new Date(date + 'T12:00:00'); // noon to avoid timezone issues
-    const nextDate = new Date(currentDate);
-    nextDate.setDate(nextDate.getDate() + 1);
-    const nextDateStr = nextDate.toISOString().split('T')[0];
-    const nextDayName = nextDate.toLocaleDateString('en-US', { weekday: 'long' });
-
-    // Add navigation
-    html += `
-      <section class="day-navigation">
-        <div class="nav-status">
-          <span class="status-complete">✦ Day Complete ✦</span>
-        </div>
-        <div class="nav-actions">
-          <a href="/history" class="btn">Back to Archive</a>
-          <a href="/practice/session/${nextDateStr}" class="btn btn-primary">Continue to ${nextDayName} →</a>
-        </div>
-        <div class="nav-secondary">
-          <a href="/practice/session/${date}" class="revisit-link">Revisit this day's session</a>
-        </div>
-      </section>
-    `;
-    
-    entryContent!.innerHTML = html;
-  }
-
-  function renderEntry(planetaryCard: string | null, domainCards: Record<string, string> | null, interpretations: any[], synthesis: string | null) {
-    const domains = ['Body', 'Mind', 'Heart', 'Spirit'];
-    
-    let html = '';
-    
-    // Cards section
-    if (planetaryCard || domainCards) {
-      html += '<section class="cards-section">';
-      
-      if (planetaryCard) {
-        html += `
-          <div class="planetary-focus">
-            <span class="label">Planetary Card</span>
-            <span class="card-name">${planetaryCard}</span>
-          </div>
-        `;
-      }
-      
-      if (domainCards && Object.keys(domainCards).length > 0) {
-        html += '<div class="domain-cards">';
-        for (const domain of domains) {
-          if (domainCards[domain]) {
-            html += `
-              <div class="domain-card domain-${domain.toLowerCase()}">
-                <span class="domain-label">${domain}</span>
-                <span class="card-name">${domainCards[domain]}</span>
-              </div>
-            `;
-          }
-        }
-        html += '</div>';
-      }
-      
-      html += '</section>';
-    }
-    
-    // Interpretations section
-    html += '<section class="interpretations-section"><h2>Interpretations</h2><div class="interpretations-grid">';
-    
-    for (const interp of interpretations) {
-      const statusClass = `status-${interp.status}`;
-      html += `
-        <div class="interpretation-card domain-${interp.domain.toLowerCase()} ${statusClass}">
-          <div class="interp-header">
-            <span class="domain-name">${interp.domain}</span>
-            <span class="status-badge ${statusClass}">${interp.status}</span>
-          </div>
-      `;
-      
-      if (interp.status === 'ready' && interp.introspection_question) {
-        html += `
-          <div class="interp-content">
-            <p class="question">${interp.introspection_question}</p>
-            <a href="/practice/respond/${interp.interpretation_id}" class="btn">Respond</a>
-          </div>
-        `;
-      } else if (interp.status === 'responded') {
-        html += '<div class="interp-content"><p class="awaiting">Awaiting evaluation...</p></div>';
-      } else if (interp.status === 'complete') {
-        html += '<div class="interp-content complete"><span class="checkmark">✓</span><span>Complete</span></div>';
-      } else if (interp.status === 'prepared') {
-        html += '<div class="interp-content"><p class="awaiting">Preparing interpretation...</p></div>';
-      }
-      
-      html += '</div>';
-    }
-    
-    html += '</div></section>';
-    
-    // Synthesis section
-    if (synthesis) {
-      html += `
-        <section class="synthesis-section">
-          <h2>Daily Synthesis</h2>
-          <blockquote>${synthesis}</blockquote>
-        </section>
-      `;
-    }
-    
-    entryContent!.innerHTML = html;
-  }
-
-  function renderPreparedState(planetaryCard: string | null, domainCards: Record<string, string> | null, interpretations: any[]) {
-    const domains = ['Body', 'Mind', 'Heart', 'Spirit'];
-    let html = '';
-    
-    // Cards section
-    if (planetaryCard) {
-      html += `
-        <section class="cards-section">
-          <div class="planetary-focus">
-            <span class="label">Planetary Card</span>
-            <span class="card-name">${planetaryCard}</span>
-          </div>
-        </section>
-      `;
-    }
-    
-    if (domainCards && Object.keys(domainCards).length > 0) {
-      html += '<section class="cards-section"><div class="domain-cards">';
-      for (const domain of domains) {
-        if (domainCards[domain]) {
-          html += `
-            <div class="domain-card domain-${domain.toLowerCase()}">
-              <span class="domain-label">${domain}</span>
-              <span class="card-name">${domainCards[domain]}</span>
-            </div>
-          `;
-        }
-      }
-      html += '</div></section>';
-    }
-    
-    // Interpretations awaiting preparation
-    html += `
-      <section class="interpretations-section">
-        <h2>Interpretations</h2>
-        <div class="prepared-state">
-          <div class="prepared-icon">⏳</div>
-          <h3>Awaiting Preparation</h3>
-          <p>The four domain interpretations have been created and need introspection questions.</p>
-          <p class="hint">Use a Claude conversation with the Sacred Journey prompt to generate interpretations, then prepare them via the API.</p>
-        </div>
-        
-        <div class="interpretations-grid prepared-grid">
-          ${domains.map((domain: string) => `
-            <div class="interpretation-card domain-${domain.toLowerCase()} status-prepared">
-              <div class="interp-header">
-                <span class="domain-name">${domain}</span>
-                <span class="status-badge status-prepared">needs prep</span>
-              </div>
-              <div class="interp-content">
-                <p class="awaiting">No introspection question yet</p>
-              </div>
-            </div>
-          `).join('')}
-        </div>
-        
-        <div class="prepare-actions">
-          <a href="/history" class="btn">Back to Archive</a>
-          <a href="/practice/session/${date}" class="btn btn-primary">Start Chat Session</a>
-          <a href="/practice/prepare/${date}" class="btn">Manual Preparation</a>
-        </div>
-      </section>
-    `;
-    
-    entryContent!.innerHTML = html;
-  }
-
-  // Begin entry button handler
-  beginBtn?.addEventListener('click', async () => {
-    loadingEl!.style.display = 'flex';
-    
-    try {
-      const response = await fetch(`${API_BASE}/sacred-journey/daily/begin`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ entry_date: date }),
-      });
-      
-      const data = await response.json().catch(() => ({}));
-      
-      // "Already exists" means entry is there - reload to show it
-      if (!response.ok) {
-        if (data.detail?.includes('already exists')) {
-          window.location.reload();
-          return;
-        }
-        throw new Error(data.detail || `Failed to begin entry: ${response.status}`);
-      }
-      
-      // Success - reload to show the new entry
-      window.location.reload();
-      
-    } catch (err) {
-      loadingEl!.style.display = 'none';
-      alert(err instanceof Error ? err.message : 'Failed to begin daily entry');
-    }
-  });
-</script>
-
 <style>
-  .daily-practice-page {
+  .entry-detail-page {
     max-width: 800px;
     margin: 0 auto;
     position: relative;
   }
-  
+
   .page-header {
     margin-bottom: var(--space-2xl);
   }
-  
+
   .back-link {
     display: inline-block;
     font-size: 0.9rem;
     color: var(--color-text-muted);
     margin-bottom: var(--space-sm);
   }
-  
+
   .back-link:hover { color: var(--color-gold); }
-  
-  .planetary-ruler {
-    color: var(--color-gold);
-    font-family: var(--font-display);
-    margin: 0;
-  }
-  
-  /* Loading inline */
-  .loading-inline {
+
+  .header-meta {
     display: flex;
     align-items: center;
-    justify-content: center;
     gap: var(--space-md);
-    padding: var(--space-2xl);
+    margin-top: var(--space-sm);
+  }
+
+  .entry-status-badge {
+    font-size: 0.75rem;
+    padding: 3px 10px;
+    border-radius: 4px;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    background: var(--color-bg-elevated);
     color: var(--color-text-muted);
+    border: 1px solid var(--color-border);
   }
-  
-  .spinner-small {
-    width: 24px;
-    height: 24px;
-    border: 2px solid var(--color-border);
-    border-top-color: var(--color-gold);
-    border-radius: 50%;
-    animation: spin 1s linear infinite;
+
+  .entry-status-badge.status-available {
+    background: rgba(201, 162, 39, 0.1);
+    color: var(--color-gold-dim);
+    border-color: var(--color-gold-dim);
   }
-  
+
+  .entry-status-badge.status-active {
+    background: rgba(201, 162, 39, 0.2);
+    color: var(--color-gold);
+    border-color: var(--color-gold);
+  }
+
+  .entry-status-badge.status-integrating {
+    background: rgba(138, 130, 180, 0.2);
+    color: #a89fd4;
+    border-color: #a89fd4;
+  }
+
+  .entry-status-badge.status-complete {
+    background: rgba(124, 152, 133, 0.2);
+    color: var(--color-accent-body);
+    border-color: var(--color-accent-body);
+  }
+
+  .planetary-card-name {
+    color: var(--color-gold);
+    font-family: var(--font-display);
+    font-size: 1rem;
+  }
+
   /* Cards section */
-  .cards-section, .cards-preview {
+  .cards-section {
     margin-bottom: var(--space-2xl);
   }
-  
+
   .planetary-focus {
     background: var(--color-bg-elevated);
     border: 1px solid var(--color-gold);
@@ -630,7 +321,7 @@ const getDayPlanetaryCard = () => {
     text-align: center;
     margin-bottom: var(--space-lg);
   }
-  
+
   .planetary-focus .label {
     display: block;
     font-size: 0.8rem;
@@ -639,19 +330,19 @@ const getDayPlanetaryCard = () => {
     color: var(--color-text-dim);
     margin-bottom: var(--space-xs);
   }
-  
+
   .planetary-focus .card-name {
     font-family: var(--font-display);
     font-size: 1.5rem;
     color: var(--color-gold);
   }
-  
+
   .domain-cards {
     display: grid;
     grid-template-columns: repeat(4, 1fr);
     gap: var(--space-md);
   }
-  
+
   .domain-card {
     background: var(--color-bg-card);
     border: 1px solid var(--color-border);
@@ -660,12 +351,12 @@ const getDayPlanetaryCard = () => {
     text-align: center;
     border-top: 3px solid var(--domain-color, var(--color-border));
   }
-  
-  .domain-card.domain-body { --domain-color: var(--color-accent-body); }
-  .domain-card.domain-mind { --domain-color: var(--color-accent-mind); }
-  .domain-card.domain-heart { --domain-color: var(--color-accent-heart); }
-  .domain-card.domain-spirit { --domain-color: var(--color-accent-spirit); }
-  
+
+  .domain-card.domain-physical { --domain-color: var(--color-accent-body); }
+  .domain-card.domain-emotional { --domain-color: var(--color-accent-heart); }
+  .domain-card.domain-mental { --domain-color: var(--color-accent-mind); }
+  .domain-card.domain-spiritual { --domain-color: var(--color-accent-spirit); }
+
   .domain-label {
     display: block;
     font-family: var(--font-display);
@@ -675,23 +366,23 @@ const getDayPlanetaryCard = () => {
     color: var(--domain-color);
     margin-bottom: var(--space-xs);
   }
-  
+
   .domain-card .card-name {
     font-size: 0.9rem;
     color: var(--color-text);
   }
-  
+
   /* Context section */
   .context-section {
     margin-bottom: var(--space-2xl);
   }
-  
+
   .context-section h2 {
     font-size: 1rem;
     margin-bottom: var(--space-md);
   }
-  
-  .yesterday-synthesis {
+
+  .synthesis-quote {
     margin: 0;
     padding: var(--space-lg);
     background: var(--color-bg-elevated);
@@ -704,18 +395,28 @@ const getDayPlanetaryCard = () => {
     overflow-y: auto;
     white-space: pre-wrap;
   }
-  
+
   /* Interpretations */
+  .interpretations-section {
+    margin-bottom: var(--space-2xl);
+  }
+
   .interpretations-section h2 {
+    margin-bottom: var(--space-sm);
+  }
+
+  .completion-summary {
+    color: var(--color-text-dim);
+    font-size: 0.9rem;
     margin-bottom: var(--space-lg);
   }
-  
+
   .interpretations-grid {
     display: grid;
     grid-template-columns: repeat(2, 1fr);
     gap: var(--space-md);
   }
-  
+
   .interpretation-card {
     background: var(--color-bg-card);
     border: 1px solid var(--color-border);
@@ -723,24 +424,24 @@ const getDayPlanetaryCard = () => {
     padding: var(--space-md);
     border-left: 4px solid var(--domain-color, var(--color-border));
   }
-  
-  .interpretation-card.domain-body { --domain-color: var(--color-accent-body); }
-  .interpretation-card.domain-mind { --domain-color: var(--color-accent-mind); }
-  .interpretation-card.domain-heart { --domain-color: var(--color-accent-heart); }
-  .interpretation-card.domain-spirit { --domain-color: var(--color-accent-spirit); }
-  
+
+  .interpretation-card.domain-physical { --domain-color: var(--color-accent-body); }
+  .interpretation-card.domain-emotional { --domain-color: var(--color-accent-heart); }
+  .interpretation-card.domain-mental { --domain-color: var(--color-accent-mind); }
+  .interpretation-card.domain-spiritual { --domain-color: var(--color-accent-spirit); }
+
   .interp-header {
     display: flex;
     justify-content: space-between;
     align-items: center;
     margin-bottom: var(--space-sm);
   }
-  
+
   .domain-name {
     font-family: var(--font-display);
     color: var(--domain-color);
   }
-  
+
   .status-badge {
     font-size: 0.7rem;
     padding: 2px 8px;
@@ -749,39 +450,49 @@ const getDayPlanetaryCard = () => {
     background: var(--color-bg);
     color: var(--color-text-muted);
   }
-  
-  .status-badge.status-ready {
+
+  .status-badge.status-pending {
+    background: rgba(201, 162, 39, 0.1);
+    color: var(--color-gold-dim);
+  }
+
+  .status-badge.status-responded {
     background: rgba(201, 162, 39, 0.2);
     color: var(--color-gold);
   }
-  
+
+  .status-badge.status-evaluated {
+    background: rgba(138, 130, 180, 0.2);
+    color: #a89fd4;
+  }
+
   .status-badge.status-complete {
     background: rgba(124, 152, 133, 0.2);
     color: var(--color-accent-body);
   }
-  
-  .interp-content .question {
-    font-style: italic;
-    color: var(--color-text-muted);
-    margin-bottom: var(--space-sm);
-    font-size: 0.95rem;
-  }
-  
+
   .interp-content .awaiting {
     color: var(--color-text-dim);
     font-size: 0.9rem;
     margin: 0;
   }
-  
-  .interp-content.complete {
+
+  .interp-content .complete-indicator {
     display: flex;
     align-items: center;
     gap: var(--space-sm);
     color: var(--color-accent-body);
   }
-  
+
   .checkmark { font-size: 1.2rem; }
-  
+
+  .btn-sm {
+    font-size: 0.8rem;
+    padding: 4px 12px;
+    margin-top: var(--space-sm);
+    display: inline-block;
+  }
+
   .completed-badge {
     display: flex;
     align-items: center;
@@ -793,23 +504,46 @@ const getDayPlanetaryCard = () => {
     border-radius: var(--card-radius);
     color: var(--color-accent-body);
   }
-  
+
   .completed-badge .checkmark {
     font-size: 1.5rem;
   }
-  
-  .synthesis-content {
-    padding: var(--space-lg);
-    background: var(--color-bg-elevated);
-    border-left: 4px solid var(--color-gold);
+
+  /* Pending state */
+  .pending-state {
+    text-align: center;
+    padding: var(--space-xl);
+    background: var(--color-bg-card);
+    border: 1px dashed var(--color-gold-dim);
     border-radius: var(--card-radius);
-    color: var(--color-text-muted);
-    line-height: 1.8;
-    white-space: pre-wrap;
   }
-  
-  /* Day navigation */
-  .day-navigation {
+
+  .pending-icon {
+    font-size: 3rem;
+    margin-bottom: var(--space-md);
+    color: var(--color-gold-dim);
+  }
+
+  .pending-state h3 {
+    color: var(--color-gold);
+    margin-bottom: var(--space-sm);
+  }
+
+  .pending-state p {
+    color: var(--color-text-muted);
+    margin-bottom: var(--space-md);
+  }
+
+  /* Action links */
+  .action-links, .prepare-actions {
+    display: flex;
+    justify-content: center;
+    gap: var(--space-md);
+    margin-top: var(--space-lg);
+  }
+
+  /* Entry navigation */
+  .entry-navigation {
     margin-top: var(--space-2xl);
     padding: var(--space-xl);
     background: var(--color-bg-elevated);
@@ -817,142 +551,39 @@ const getDayPlanetaryCard = () => {
     border-radius: var(--card-radius);
     text-align: center;
   }
-  
+
   .nav-status {
     margin-bottom: var(--space-lg);
   }
-  
+
   .nav-status .status-complete {
     font-family: var(--font-display);
     color: var(--color-accent-body);
     letter-spacing: 0.1em;
   }
-  
+
+  .nav-status .status-integrating {
+    font-family: var(--font-display);
+    color: #a89fd4;
+    letter-spacing: 0.1em;
+  }
+
   .nav-actions {
     display: flex;
     justify-content: center;
     gap: var(--space-md);
   }
 
-  .nav-secondary {
-    margin-top: var(--space-md);
-  }
-
-  .revisit-link {
-    font-size: 0.85rem;
-    color: var(--color-text-dim);
-  }
-
-  .revisit-link:hover {
-    color: var(--color-gold);
-  }
-  
-  /* Synthesis */
-  .synthesis-section {
-    margin-top: var(--space-2xl);
-  }
-  
-  .synthesis-section blockquote {
-    margin: 0;
-    padding: var(--space-lg);
-    background: var(--color-bg-elevated);
-    border-left: 4px solid var(--color-gold);
-    border-radius: var(--card-radius);
-    font-style: italic;
-    color: var(--color-text-muted);
-  }
-  
   /* States */
-  .error-state, .no-entry-state, .info-state {
+  .error-state {
     text-align: center;
     padding: var(--space-2xl);
     background: var(--color-bg-elevated);
     border: 1px dashed var(--color-border);
     border-radius: var(--card-radius);
   }
-  
-  .action-links {
-    display: flex;
-    justify-content: center;
-    gap: var(--space-md);
-    margin-top: var(--space-lg);
-  }
-  
-  .begin-entry-state {
-    padding: var(--space-lg) 0;
-  }
-  
-  .week-info {
-    text-align: center;
-    margin-bottom: var(--space-lg);
-  }
-  
-  .week-progress {
-    color: var(--color-text-muted);
-    font-size: 0.9rem;
-  }
-  
-  .begin-prompt {
-    text-align: center;
-    margin-top: var(--space-2xl);
-    padding: var(--space-xl);
-    background: var(--color-bg-elevated);
-    border: 1px solid var(--color-border);
-    border-radius: var(--card-radius);
-  }
-  
-  .begin-prompt p {
-    color: var(--color-text-muted);
-    margin-bottom: var(--space-md);
-  }
-  
-  .hint {
-    color: var(--color-text-dim);
-    font-size: 0.9rem;
-  }
-  
-  /* Prepared state */
-  .prepared-state {
-    text-align: center;
-    padding: var(--space-xl);
-    background: var(--color-bg-card);
-    border: 1px dashed var(--color-gold-dim);
-    border-radius: var(--card-radius);
-    margin-bottom: var(--space-lg);
-  }
-  
-  .prepared-icon {
-    font-size: 3rem;
-    margin-bottom: var(--space-md);
-  }
-  
-  .prepared-state h3 {
-    color: var(--color-gold);
-    margin-bottom: var(--space-sm);
-  }
-  
-  .prepared-state p {
-    color: var(--color-text-muted);
-    margin-bottom: var(--space-xs);
-  }
-  
-  .prepared-grid {
-    margin-bottom: var(--space-lg);
-  }
-  
-  .prepare-actions {
-    display: flex;
-    justify-content: center;
-    gap: var(--space-md);
-    margin-top: var(--space-lg);
-  }
-  
-  .status-badge.status-prepared {
-    background: rgba(201, 162, 39, 0.1);
-    color: var(--color-gold-dim);
-  }
-  
-  /* Loading overlay */
+
+  /* Loading overlay (kept for potential future use) */
   .loading-overlay {
     position: fixed;
     inset: 0;
@@ -963,7 +594,7 @@ const getDayPlanetaryCard = () => {
     justify-content: center;
     z-index: 100;
   }
-  
+
   .spinner {
     width: 40px;
     height: 40px;
@@ -973,16 +604,21 @@ const getDayPlanetaryCard = () => {
     animation: spin 1s linear infinite;
     margin-bottom: var(--space-md);
   }
-  
+
   @keyframes spin { to { transform: rotate(360deg); } }
-  
+
   @media (max-width: 768px) {
     .domain-cards {
       grid-template-columns: repeat(2, 1fr);
     }
-    
+
     .interpretations-grid {
       grid-template-columns: 1fr;
+    }
+
+    .header-meta {
+      flex-direction: column;
+      align-items: flex-start;
     }
   }
 </style>

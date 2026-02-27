@@ -10,7 +10,7 @@ export default defineConfig({
   output: 'server',
 
   // Site configuration
-  site: 'https://pathsofreverence.dubtown.design',
+  site: 'https://practice.dubtown-server.us',
 
   // Development server
   server: {
@@ -22,8 +22,11 @@ export default defineConfig({
   vite: {
     define: {
       'import.meta.env.PUBLIC_API_BASE': JSON.stringify(
-        process.env.PUBLIC_API_BASE || 'https://neo4jmiddleware.robin-alligator.ts.net'
+        process.env.PUBLIC_API_BASE || 'https://repository.dubtown-server.us'
       ),
+    },
+    server: {
+      allowedHosts: ['practice.dubtown-server.us'],
     },
   },
 

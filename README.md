@@ -1,46 +1,37 @@
-# Astro Starter Kit: Basics
+# Paths of Reverence - Sacred Journey Site
+
+Astro SSR application for the Sacred Journey daily tarot practice system. Connects to a Neo4j middleware API for weekly readings, daily entries, interpretations, and synthesis.
+
+## Architecture
+
+- **Framework**: Astro v5+ with `output: 'server'` (SSR)
+- **API**: Neo4j middleware at `repository.dubtown-server.us`
+- **AI**: Claude API for interpretation generation and conversational sessions
+
+## Key Pages
+
+| Route | Purpose |
+|-------|---------|
+| `/` | Today's spread and interpretation status |
+| `/practice/new-week` | Create or edit a weekly card reading |
+| `/practice/[date]` | Daily practice view |
+| `/practice/session/[date]` | Conversational chat session with Claude |
+| `/practice/prepare/[date]` | AI-generate interpretations for each domain |
+| `/practice/respond/[id]` | Respond to a specific interpretation |
+| `/practice/pending` | Queue of interpretations awaiting response |
+| `/history` | Archive of past weekly readings |
+
+## Setup
 
 ```sh
-npm create astro@latest -- --template basics
+npm install
+cp .env.example .env  # Add your API keys
+npm run dev
 ```
 
-> 🧑‍🚀 **Seasoned astronaut?** Delete this file. Have fun!
+## Environment Variables
 
-## 🚀 Project Structure
-
-Inside of your Astro project, you'll see the following folders and files:
-
-```text
-/
-├── public/
-│   └── favicon.svg
-├── src
-│   ├── assets
-│   │   └── astro.svg
-│   ├── components
-│   │   └── Welcome.astro
-│   ├── layouts
-│   │   └── Layout.astro
-│   └── pages
-│       └── index.astro
-└── package.json
-```
-
-To learn more about the folder structure of an Astro project, refer to [our guide on project structure](https://docs.astro.build/en/basics/project-structure/).
-
-## 🧞 Commands
-
-All commands are run from the root of the project, from a terminal:
-
-| Command                   | Action                                           |
-| :------------------------ | :----------------------------------------------- |
-| `npm install`             | Installs dependencies                            |
-| `npm run dev`             | Starts local dev server at `localhost:4321`      |
-| `npm run build`           | Build your production site to `./dist/`          |
-| `npm run preview`         | Preview your build locally, before deploying     |
-| `npm run astro ...`       | Run CLI commands like `astro add`, `astro check` |
-| `npm run astro -- --help` | Get help using the Astro CLI                     |
-
-## 👀 Want to learn more?
-
-Feel free to check [our documentation](https://docs.astro.build) or jump into our [Discord server](https://astro.build/chat).
+| Variable | Description |
+|----------|-------------|
+| `PUBLIC_API_BASE` | Sacred Journey API base URL |
+| `ANTHROPIC_API_KEY` | Anthropic API key for Claude |

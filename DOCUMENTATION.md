@@ -70,7 +70,7 @@ The app functions as a **sacred witness** rather than a fortune-telling tool. It
 ┌──────────────────┐  ┌───────────────────────────────────────┐
 │   Anthropic API  │  │   Sacred Journey API                  │
 │   (Claude)       │  │   (Neo4j Middleware)                  │
-│                  │  │   neo4jmiddleware.robin-alligator.ts  │
+│                  │  │   repository.dubtown-server.us        │
 └──────────────────┘  └───────────────────────────────────────┘
 ```
 
@@ -114,7 +114,7 @@ cp .env.example .env
 
 ```env
 # Sacred Journey API (Neo4j middleware)
-PUBLIC_API_BASE=https://neo4jmiddleware.robin-alligator.ts.net
+PUBLIC_API_BASE=https://repository.dubtown-server.us
 
 # Anthropic API for Claude chat sessions
 ANTHROPIC_API_KEY=sk-ant-your-key-here
@@ -224,7 +224,7 @@ await sacredJourney.createWeeklyReading({
   domain_cards: {
     Body: 'Four of Pentacles',
     Mind: 'Ace of Swords',
-    Heart: 'Two of Cups',
+    Heart: 'Two of Chalices',
     Spirit: 'The Hermit'
   }
 });
@@ -868,7 +868,7 @@ export default defineConfig({
   vite: {
     define: {
       'import.meta.env.PUBLIC_API_BASE': JSON.stringify(
-        process.env.PUBLIC_API_BASE || 'https://neo4jmiddleware.robin-alligator.ts.net'
+        process.env.PUBLIC_API_BASE || 'https://repository.dubtown-server.us'
       )
     }
   },
@@ -899,7 +899,7 @@ export default defineConfig({
 
 | Variable | Description | Default |
 |----------|-------------|---------|
-| `PUBLIC_API_BASE` | Sacred Journey API URL | `https://neo4jmiddleware.robin-alligator.ts.net` |
+| `PUBLIC_API_BASE` | Sacred Journey API URL | `https://repository.dubtown-server.us` |
 | `ANTHROPIC_API_KEY` | Claude API key for chat sessions | Required |
 
 ---

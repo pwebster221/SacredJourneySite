@@ -5,7 +5,7 @@
 ## Base URL
 
 ```
-Production: https://neo4jmiddleware.robin-alligator.ts.net
+Production: https://repository.dubtown-server.us
 Local Dev:  http://100.117.79.64:8000
 ```
 
@@ -39,7 +39,7 @@ Content-Type: application/json
   "domain_cards": {
     "Body": "Four of Pentacles",
     "Mind": "Ace of Swords",
-    "Heart": "Two of Cups",
+    "Heart": "Two of Chalices",
     "Spirit": "The Hermit"
   }
 }
@@ -86,7 +86,7 @@ GET /sacred-journey/current-spread
   "domain_cards": {
     "Body": "Four of Pentacles",
     "Mind": "Ace of Swords",
-    "Heart": "Two of Cups",
+    "Heart": "Two of Chalices",
     "Spirit": "The Hermit"
   },
   "today": {
@@ -97,7 +97,7 @@ GET /sacred-journey/current-spread
     "domain_cards": {
       "Body": "Four of Pentacles",
       "Mind": "Ace of Swords",
-      "Heart": "Two of Cups",
+      "Heart": "Two of Chalices",
       "Spirit": "The Hermit"
     },
     "interpretations": [
@@ -225,7 +225,7 @@ GET /sacred-journey/daily/{entry_date}/interpretations
   "domain_cards": {
     "Body": "Four of Pentacles",
     "Mind": "Ace of Swords",
-    "Heart": "Two of Cups",
+    "Heart": "Two of Chalices",
     "Spirit": "The Hermit"
   },
   "interpretations": [
@@ -294,7 +294,7 @@ GET /sacred-journey/daily/{entry_date}/context?user_id={user_id}
   "domain_cards": {
     "Body": "Four of Pentacles",
     "Mind": "Ace of Swords",
-    "Heart": "Two of Cups",
+    "Heart": "Two of Chalices",
     "Spirit": "The Hermit"
   },
   "user_context": {
@@ -382,7 +382,7 @@ Content-Type: application/json
       "domain_eval": "Mental breakthrough achieved"
     },
     "Heart": {
-      "prepared_interpretation": "Two of Cups speaks to connection...",
+      "prepared_interpretation": "Two of Chalices speaks to connection...",
       "introspection_question": "Where do you feel most connected?",
       "response": "In moments of...",
       "domain_eval": "Emotional opening"

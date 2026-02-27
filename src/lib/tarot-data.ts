@@ -15,10 +15,10 @@ export const TAROT_DECK = [
     'Six of Wands', 'Seven of Wands', 'Eight of Wands', 'Nine of Wands', 'Ten of Wands',
     'Page of Wands', 'Knight of Wands', 'Queen of Wands', 'King of Wands',
 
-    // Cups
-    'Ace of Cups', 'Two of Cups', 'Three of Cups', 'Four of Cups', 'Five of Cups',
-    'Six of Cups', 'Seven of Cups', 'Eight of Cups', 'Nine of Cups', 'Ten of Cups',
-    'Page of Cups', 'Knight of Cups', 'Queen of Cups', 'King of Cups',
+    // Chalices
+    'Ace of Chalices', 'Two of Chalices', 'Three of Chalices', 'Four of Chalices', 'Five of Chalices',
+    'Six of Chalices', 'Seven of Chalices', 'Eight of Chalices', 'Nine of Chalices', 'Ten of Chalices',
+    'Page of Chalices', 'Knight of Chalices', 'Queen of Chalices', 'King of Chalices',
 
     // Swords
     'Ace of Swords', 'Two of Swords', 'Three of Swords', 'Four of Swords', 'Five of Swords',

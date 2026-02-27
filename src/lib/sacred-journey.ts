@@ -267,7 +267,20 @@ export class SacredJourneyClient {
 
   private async throwApiError(response: Response, fallback: string): Promise<never> {
     const body = await response.json().catch(() => ({})) as any
-    throw new Error(body.detail || fallback)
+    const detail = body.detail
+    const message = typeof detail === 'string'
+      ? detail
+      : Array.isArray(detail)
+        ? detail.map((d: any) => {
+            const loc = Array.isArray(d.loc) ? d.loc.join('.') : ''
+            const msg = d.msg ?? JSON.stringify(d)
+            return loc ? `${loc}: ${msg}` : msg
+          }).join('; ')
+        : detail
+          ? JSON.stringify(detail)
+          : fallback
+    console.error(`[API ${response.status}] ${response.url}: ${message}`)
+    throw new Error(message)
   }
 
   // ── Cycles ──────────────────────────────────────────────────
@@ -336,7 +349,11 @@ export class SacredJourneyClient {
   // ── Entries ──────────────────────────────────────────────────
 
   async beginEntry(entryId: string): Promise<ProgressionEntryResponse> {
-    const res = await fetch(this.url(`/entries/${entryId}/begin`), { method: 'POST' })
+    const res = await fetch(this.url(`/entries/${entryId}/begin`), {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({})
+    })
     if (!res.ok) await this.throwApiError(res, 'Failed to begin entry')
     return res.json()
   }
@@ -379,7 +396,11 @@ export class SacredJourneyClient {
   }
 
   async advanceEntry(entryId: string): Promise<EntryAdvanceResponse> {
-    const res = await fetch(this.url(`/entries/${entryId}/advance`), { method: 'POST' })
+    const res = await fetch(this.url(`/entries/${entryId}/advance`), {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({})
+    })
     if (!res.ok) await this.throwApiError(res, 'Failed to advance entry')
     return res.json()
   }
@@ -422,7 +443,11 @@ export class SacredJourneyClient {
     interpretation_id: string; domain: Domain; status: InterpretationStatus;
     completed_at: string; remaining_domains: number; all_complete: boolean; message: string
   }> {
-    const res = await fetch(this.url(`/interpretations/${interpId}/complete`), { method: 'POST' })
+    const res = await fetch(this.url(`/interpretations/${interpId}/complete`), {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({})
+    })
     if (!res.ok) await this.throwApiError(res, 'Failed to complete interpretation')
     return res.json()
   }

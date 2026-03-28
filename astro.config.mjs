@@ -24,7 +24,7 @@ export default defineConfig({
   vite: {
     define: {
       'import.meta.env.PUBLIC_API_BASE': JSON.stringify(
-        process.env.PUBLIC_API_BASE || 'https://repository.sacredjourney.io'
+        process.env.PUBLIC_API_BASE || 'https://repository.dubtown-server.us'
       ),
     },
     server: {

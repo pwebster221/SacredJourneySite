@@ -193,7 +193,7 @@ const nextEntry = timeline?.entries.find(e => e.status === 'available' || e.stat
             <h2>Domain Cards</h2>
             <div class="cards-list">
               {DOMAINS.map((domain) => {
-                const cardName = (timeline.domain_cards as Record<string, string>)[domain];
+                const cardName = timeline.domain_cards[domain];
                 return cardName ? (
                   <div class="card-item">
                     <span class="card-domain">{domain}</span>

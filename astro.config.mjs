@@ -1,6 +1,7 @@
 // @ts-check
 import { defineConfig } from 'astro/config';
 
+import node from '@astrojs/node';
 import sentry from '@sentry/astro';
 import spotlightjs from '@spotlightjs/astro';
 
@@ -8,6 +9,7 @@ import spotlightjs from '@spotlightjs/astro';
 export default defineConfig({
   // Enable SSR for API interactions
   output: 'server',
+  adapter: node({ mode: 'standalone' }),
 
   // Site configuration
   site: 'https://practice.dubtown-server.us',
@@ -22,7 +24,7 @@ export default defineConfig({
   vite: {
     define: {
       'import.meta.env.PUBLIC_API_BASE': JSON.stringify(
-        process.env.PUBLIC_API_BASE || 'https://repository.dubtown-server.us'
+        process.env.PUBLIC_API_BASE || 'https://repository.sacredjourney.io'
       ),
     },
     server: {
